@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="jazzer_standalone">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/jazzer_standalone.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

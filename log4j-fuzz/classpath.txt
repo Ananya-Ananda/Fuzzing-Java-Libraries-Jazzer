@@ -1,0 +1,1 @@
+/Users/ananyaananda/.m2/repository/org/apache/logging/log4j/log4j-core/2.20.0/log4j-core-2.20.0.jar:/Users/ananyaananda/.m2/repository/org/apache/logging/log4j/log4j-api/2.20.0/log4j-api-2.20.0.jar:/Users/ananyaananda/.m2/repository/org/apache/logging/log4j/log4j-layout-template-json/2.20.0/log4j-layout-template-json-2.20.0.jar
