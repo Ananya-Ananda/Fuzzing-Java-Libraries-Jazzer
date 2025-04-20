@@ -1,12 +1,12 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import os
 
 def generate_joke_with_llama():
     print("Loading Llama model and tokenizer...")
     
-    # Use the model you've been granted access to
-    model_name = "meta-llama/Llama-3.3-70B-Instruct"
+    # Since you have an A100 with 80GB VRAM, you can use the 70B model if desired
+    model_name = "meta-llama/Llama-3.3-70B-Instruct"  # Or use meta-llama/Llama-3-8B-Instruct for faster loading
     
     # Set cache directories to use scratch space
     cache_dir = "/scratch/ckp6ac/log4j_llm_fuzzing"
@@ -17,6 +17,7 @@ def generate_joke_with_llama():
     huggingface_token = input("Enter your Hugging Face token: ")
     
     print(f"Using cache directory: {cache_dir}")
+    print(f"Using model: {model_name}")
     print("Downloading and loading model, this may take a while...")
     
     # Load tokenizer with authentication and specific cache directory
@@ -26,17 +27,27 @@ def generate_joke_with_llama():
         cache_dir=cache_dir
     )
     
-    # Load model with authentication and optimizations for large models
+    # Create BitsAndBytesConfig for efficient inference
+    # With 80GB VRAM, you can use 4-bit quantization for best performance/quality balance
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4"
+    )
+    
+    # Load model with efficient settings for A100
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         token=huggingface_token,
         cache_dir=cache_dir,
-        torch_dtype=torch.float16,  # Use half precision
-        device_map="auto",          # Automatically distribute across available GPUs
-        load_in_8bit=True           # Use 8-bit quantization to reduce VRAM usage
+        quantization_config=quantization_config,
+        device_map="auto",
+        torch_dtype=torch.float16
     )
     
-    print("Model loaded. Generating a joke...")
+    print("Model loaded successfully!")
+    print("Generating a joke...")
     
     # Prompt for joke generation
     prompt = """
@@ -44,7 +55,7 @@ def generate_joke_with_llama():
     """
     
     # Encode the prompt
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer(prompt, return_tensors="pt").to('cuda')
     
     # Generate a response
     with torch.no_grad():
