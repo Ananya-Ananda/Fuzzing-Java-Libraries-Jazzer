@@ -6,32 +6,33 @@ import subprocess
 
 def install_required_packages():
     """Install required packages."""
-    packages = ["llama-cpp-python"]
+    packages = ["llama-cpp-python[metal]"]
     for package in packages:
         try:
-            print(f"Attempting to install {package}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-            print(f"Successfully installed {package}")
+            print(f"Attempting to install {package} with Metal GPU support...")
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                package,
+                "--no-cache-dir",
+                "--force-reinstall"
+            ])
+            print(f"Successfully installed {package} with Metal support")
         except subprocess.CalledProcessError as e:
             print(f"Error installing {package}: {e}")
-            print("Attempting to install with additional options...")
+            print("Attempting to install standard version...")
             try:
-                # Try with specific options for Mac
                 subprocess.check_call([
                     sys.executable, "-m", "pip", "install",
                     "llama-cpp-python",
-                    "--prefer-binary",
-                    "--extra-index-url=https://pypi.anaconda.org/scipy-wheels-nightly/simple"
+                    "--prefer-binary"
                 ])
-                print("Installation successful with additional options")
+                print("Installation successful with standard options")
             except subprocess.CalledProcessError as e2:
                 print(f"Error during second installation attempt: {e2}")
-                print("Please try manual installation:")
-                print("pip install llama-cpp-python --prefer-binary")
                 sys.exit(1)
 
 def initialize_model():
-    """Initialize the model for text generation."""
+    """Initialize the model for text generation with GPU acceleration."""
     try:
         from llama_cpp import Llama
     except ImportError:
@@ -45,16 +46,21 @@ def initialize_model():
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found at {model_path}. Please run download_model.py first.")
 
-    print(f"Loading model from {model_path}...")
-    # Initialize the model with appropriate parameters
+    print(f"Loading model from {model_path} with GPU acceleration...")
+
+    # On Mac, use n_gpu_layers to offload to Metal
+    n_gpu_layers = -1  # Use all layers
+
+    # Initialize the model with parameters for GPU acceleration
     llm = Llama(
         model_path=model_path,
-        n_ctx=4096,          # Context window size
+        n_ctx=2048,          # Reduced context size for faster inference
         n_batch=512,         # Batch size for prompt processing
-        n_threads=4,         # Number of threads to use
-        n_gpu_layers=0       # Set to higher number if you have a GPU
+        n_threads=4,         # Number of CPU threads
+        n_gpu_layers=n_gpu_layers  # Use GPU for all layers
     )
 
+    print("Model loaded successfully with GPU acceleration")
     return llm
 
 def generate_log4j_test_cases(llm, num_cases=5):
@@ -82,12 +88,12 @@ Return ONLY the test string without any explanation or code wrapping.
     for i in range(num_cases):
         print(f"Generating test case {i+1}/{num_cases}...")
 
-        # Generate a test case
+        # Generate a test case with higher temperature for more diversity
         completion = llm.create_completion(
             prompt=prompt_template,
-            max_tokens=1024,
-            temperature=0.7,
-            top_p=0.9,
+            max_tokens=512,      # Reduced for faster generation
+            temperature=0.8,
+            top_p=0.95,
             repeat_penalty=1.1,
             stop=["<|im_end|>"]
         )
@@ -96,8 +102,9 @@ Return ONLY the test string without any explanation or code wrapping.
         generated_text = completion["choices"][0]["text"].strip()
         test_cases.append(generated_text)
 
-        # Sleep briefly to avoid overwhelming the system
-        time.sleep(1)
+        # Print a preview
+        preview = generated_text[:50] + "..." if len(generated_text) > 50 else generated_text
+        print(f"Generated: {preview}")
 
     # Save test cases to file
     output_path = "generated_tests/log4j_test_cases.json"
@@ -109,8 +116,13 @@ Return ONLY the test string without any explanation or code wrapping.
 
 if __name__ == "__main__":
     try:
+        # Install packages with Metal support
         install_required_packages()
+
+        # Initialize model with GPU acceleration
         llm = initialize_model()
-        generate_log4j_test_cases(llm)
+
+        # Generate test cases
+        generate_log4j_test_cases(llm, num_cases=5)
     except Exception as e:
         print(f"Error generating test cases: {e}")
