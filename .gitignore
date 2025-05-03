@@ -1,0 +1,67 @@
+# Model files
+llm_fuzzer/model/
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Generated test data
+llm_fuzzer/generated_tests/corpus/
+llm_fuzzer/generated_tests/*.dict
+llm_fuzzer/generated_tests/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+target/
+jacoco.exec
+jacoco-report*/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.iws
+.settings/
+.project
+.classpath
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+fuzzing_crashes.txt
+fuzzing_summary.txt
