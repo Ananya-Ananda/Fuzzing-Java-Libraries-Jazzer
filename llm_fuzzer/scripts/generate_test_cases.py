@@ -1,10 +1,45 @@
 import os
 import json
 import time
-from llama_cpp import Llama
+import sys
+import subprocess
+
+def install_required_packages():
+    """Install required packages."""
+    packages = ["llama-cpp-python"]
+    for package in packages:
+        try:
+            print(f"Attempting to install {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            print(f"Successfully installed {package}")
+        except subprocess.CalledProcessError as e:
+            print(f"Error installing {package}: {e}")
+            print("Attempting to install with additional options...")
+            try:
+                # Try with specific options for Mac
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install",
+                    "llama-cpp-python",
+                    "--prefer-binary",
+                    "--extra-index-url=https://pypi.anaconda.org/scipy-wheels-nightly/simple"
+                ])
+                print("Installation successful with additional options")
+            except subprocess.CalledProcessError as e2:
+                print(f"Error during second installation attempt: {e2}")
+                print("Please try manual installation:")
+                print("pip install llama-cpp-python --prefer-binary")
+                sys.exit(1)
 
 def initialize_model():
     """Initialize the model for text generation."""
+    try:
+        from llama_cpp import Llama
+    except ImportError:
+        print("llama_cpp module not found. Installing required packages...")
+        install_required_packages()
+        # Try importing again
+        from llama_cpp import Llama
+
     model_path = "model/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 
     if not os.path.exists(model_path):
@@ -74,18 +109,8 @@ Return ONLY the test string without any explanation or code wrapping.
 
 if __name__ == "__main__":
     try:
-        # Try to import llama_cpp, install if not available
-        try:
-            from llama_cpp import Llama
-        except ImportError:
-            import subprocess
-            import sys
-            print("Installing llama-cpp-python...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python"])
-            from llama_cpp import Llama
-
+        install_required_packages()
         llm = initialize_model()
         generate_log4j_test_cases(llm)
-
     except Exception as e:
         print(f"Error generating test cases: {e}")
