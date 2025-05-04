@@ -2,8 +2,8 @@ Fuzzing Summary:
 ----------------
 Total executions: 10000
 Total runtime: 6 seconds
-Average executions per second: 1476.0147601476015
-Total crashes detected: 0
+Average executions per second: 1468.6444411807902
+Total crashes detected: 123
 
 This summary shows how many fuzzing iterations were executed.
 While we can't directly measure code coverage of Log4j,
