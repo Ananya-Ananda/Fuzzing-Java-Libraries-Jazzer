@@ -1,0 +1,1 @@
+{"key": "value", "jndi": "${jndi:rmi://localhost:1099/jndiLookup}", "long": "a".repeat(1_000_000)}

