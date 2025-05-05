@@ -101,32 +101,63 @@ public class Log4jFuzzer {
         }
 
         try {
-            // 1. Fuzz PatternLayout
-            if (specialTestCase != null && specialTestCase.contains("%")) {
-                fuzzPatternLayout(data, specialTestCase);
-            } else {
-                fuzzPatternLayout(data);
-            }
+            // Choose which test method to run based on fuzzed data
+            int methodToRun = data.remainingBytes() > 0 ?
+                    Math.abs(data.consumeInt()) % 9 : 0;  // Now we have 9 methods instead of 4
 
-            // 2. Fuzz Log Messages
-            if (specialTestCase != null) {
-                fuzzLogMessages(data, specialTestCase);
-            } else {
-                fuzzLogMessages(data);
-            }
-
-            // 3. Fuzz JSON Layout
-            if (specialTestCase != null && specialTestCase.contains("{")) {
-                fuzzJsonLayout(data, specialTestCase);
-            } else {
-                fuzzJsonLayout(data);
-            }
-
-            // 4. Fuzz Message Pattern
-            if (specialTestCase != null && specialTestCase.contains("{")) {
-                fuzzMessagePattern(data, specialTestCase);
-            } else {
-                fuzzMessagePattern(data);
+            switch (methodToRun) {
+                case 0:
+                    // Original method: Fuzz PatternLayout
+                    if (specialTestCase != null && specialTestCase.contains("%")) {
+                        fuzzPatternLayout(data, specialTestCase);
+                    } else {
+                        fuzzPatternLayout(data);
+                    }
+                    break;
+                case 1:
+                    // Original method: Fuzz Log Messages
+                    if (specialTestCase != null) {
+                        fuzzLogMessages(data, specialTestCase);
+                    } else {
+                        fuzzLogMessages(data);
+                    }
+                    break;
+                case 2:
+                    // Original method: Fuzz JSON Layout
+                    if (specialTestCase != null && specialTestCase.contains("{")) {
+                        fuzzJsonLayout(data, specialTestCase);
+                    } else {
+                        fuzzJsonLayout(data);
+                    }
+                    break;
+                case 3:
+                    // Original method: Fuzz Message Pattern
+                    if (specialTestCase != null && specialTestCase.contains("{")) {
+                        fuzzMessagePattern(data, specialTestCase);
+                    } else {
+                        fuzzMessagePattern(data);
+                    }
+                    break;
+                case 4:
+                    // New method: Fuzz XML Configuration
+                    fuzzXmlConfiguration(data);
+                    break;
+                case 5:
+                    // New method: Fuzz Appender Builders
+                    fuzzAppenderBuilders(data);
+                    break;
+                case 6:
+                    // New method: Fuzz Filters
+                    fuzzFilters(data);
+                    break;
+                case 7:
+                    // New method: Fuzz Lookups
+                    fuzzLookups(data);
+                    break;
+                case 8:
+                    // New method: Fuzz Layout Serialization
+                    fuzzLayoutSerialization(data);
+                    break;
             }
 
             // Generate a report after a certain time
@@ -136,6 +167,334 @@ public class Log4jFuzzer {
         } catch (Exception e) {
             recordCrash("Main fuzzer method with input: " +
                     (specialTestCase != null ? specialTestCase : "generated data"), e);
+        }
+    }
+
+    private static void fuzzXmlConfiguration(FuzzedDataProvider data) {
+        try {
+            // Generate a configuration XML string
+            StringBuilder xmlBuilder = new StringBuilder();
+            xmlBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            xmlBuilder.append("<Configuration status=\"WARN\">\n");
+            xmlBuilder.append("  <Appenders>\n");
+
+            // Add a random appender based on fuzzed data
+            String appenderName = data.consumeString(10);
+            String appenderType = data.consumeBoolean() ? "Console" : "File";
+
+            xmlBuilder.append("    <").append(appenderType).append(" name=\"").append(appenderName).append("\">\n");
+
+            // Add a pattern layout with fuzzed pattern
+            String pattern = data.remainingBytes() > 10 ?
+                    data.consumeString(Math.min(50, data.remainingBytes())) : "%m%n";
+            xmlBuilder.append("      <PatternLayout pattern=\"").append(pattern).append("\"/>\n");
+
+            xmlBuilder.append("    </").append(appenderType).append(">\n");
+            xmlBuilder.append("  </Appenders>\n");
+
+            // Add a root logger
+            xmlBuilder.append("  <Loggers>\n");
+            xmlBuilder.append("    <Root level=\"").append(data.consumeBoolean() ? "INFO" : "ERROR").append("\">\n");
+            xmlBuilder.append("      <AppenderRef ref=\"").append(appenderName).append("\"/>\n");
+            xmlBuilder.append("    </Root>\n");
+            xmlBuilder.append("  </Loggers>\n");
+            xmlBuilder.append("</Configuration>");
+
+            String xmlConfig = xmlBuilder.toString();
+
+            // Parse the configuration
+            org.apache.logging.log4j.core.config.ConfigurationSource source =
+                    new org.apache.logging.log4j.core.config.ConfigurationSource(
+                            new java.io.ByteArrayInputStream(xmlConfig.getBytes()));
+
+            org.apache.logging.log4j.core.config.xml.XmlConfiguration config =
+                    new org.apache.logging.log4j.core.config.xml.XmlConfiguration(
+                            org.apache.logging.log4j.core.LoggerContext.getContext(false), source);
+
+            // Initialize the configuration
+            config.initialize();
+            config.start();
+
+            // Try to get a logger from the configuration
+            config.getLogger("FuzzLogger");
+
+            // Clean up
+            config.stop();
+
+        } catch (Exception e) {
+            recordCrash("XmlConfiguration", e);
+        }
+    }
+
+    private static void fuzzAppenderBuilders(FuzzedDataProvider data) {
+        try {
+            // Test Console Appender
+            org.apache.logging.log4j.core.appender.ConsoleAppender.Builder consoleBuilder =
+                    org.apache.logging.log4j.core.appender.ConsoleAppender.newBuilder();
+
+            // Fuzz the console appender properties
+            consoleBuilder.setName(data.consumeString(10));
+
+            if (data.consumeBoolean()) {
+                consoleBuilder.setTarget(
+                        data.consumeBoolean() ?
+                                org.apache.logging.log4j.core.appender.ConsoleAppender.Target.SYSTEM_OUT :
+                                org.apache.logging.log4j.core.appender.ConsoleAppender.Target.SYSTEM_ERR);
+            }
+
+            if (data.remainingBytes() > 0 && data.consumeBoolean()) {
+                // Create and set a layout
+                PatternLayout layout = PatternLayout.newBuilder()
+                        .withPattern(data.consumeString(Math.min(50, data.remainingBytes())))
+                        .build();
+                consoleBuilder.setLayout(layout);
+            }
+
+            // Build and start the appender
+            org.apache.logging.log4j.core.appender.ConsoleAppender consoleAppender = consoleBuilder.build();
+            consoleAppender.start();
+
+            // Now test a File Appender
+            if (data.remainingBytes() > 20) {
+                org.apache.logging.log4j.core.appender.FileAppender.Builder fileBuilder =
+                        org.apache.logging.log4j.core.appender.FileAppender.newBuilder();
+
+                fileBuilder.setName(data.consumeString(10));
+                fileBuilder.withFileName("target/fuzz-test-" + System.currentTimeMillis() + ".log");
+
+                if (data.consumeBoolean()) {
+                    fileBuilder.withAppend(data.consumeBoolean());
+                }
+
+                if (data.consumeBoolean()) {
+                    fileBuilder.withBufferedIo(data.consumeBoolean());
+                }
+
+                if (data.consumeBoolean() && data.remainingBytes() > 0) {
+                    fileBuilder.withBufferSize(data.consumeInt(1, 8192));
+                }
+
+                // Build but don't start (to avoid creating too many files)
+                fileBuilder.build();
+            }
+
+            // Stop the console appender
+            consoleAppender.stop();
+
+        } catch (Exception e) {
+            recordCrash("AppenderBuilders", e);
+        }
+    }
+
+    private static void fuzzFilters(FuzzedDataProvider data) {
+        try {
+            // Test various filter implementations
+
+            // 1. ThresholdFilter
+            org.apache.logging.log4j.core.filter.ThresholdFilter thresholdFilter =
+                    org.apache.logging.log4j.core.filter.ThresholdFilter.createFilter(
+                            data.consumeBoolean() ? Level.ERROR : Level.INFO,
+                            data.consumeBoolean() ?
+                                    org.apache.logging.log4j.core.Filter.Result.ACCEPT :
+                                    org.apache.logging.log4j.core.Filter.Result.DENY,
+                            data.consumeBoolean() ?
+                                    org.apache.logging.log4j.core.Filter.Result.DENY :
+                                    org.apache.logging.log4j.core.Filter.Result.NEUTRAL
+                    );
+
+            thresholdFilter.start();
+
+            // Create a log event to test the filter
+            LogEvent event = Log4jLogEvent.newBuilder()
+                    .setLoggerName("FilterTest")
+                    .setLevel(data.consumeBoolean() ? Level.ERROR : Level.INFO)
+                    .setMessage(new SimpleMessage("Filter test message"))
+                    .build();
+
+            // Test the filter
+            thresholdFilter.filter(event);
+
+            // 2. LevelMatchFilter
+            if (data.remainingBytes() > 10) {
+                org.apache.logging.log4j.core.filter.LevelMatchFilter levelMatchFilter =
+                        org.apache.logging.log4j.core.filter.LevelMatchFilter.createFilter(
+                                data.consumeBoolean() ? Level.DEBUG : Level.WARN,
+                                data.consumeBoolean() ?
+                                        org.apache.logging.log4j.core.Filter.Result.ACCEPT :
+                                        org.apache.logging.log4j.core.Filter.Result.DENY,
+                                data.consumeBoolean() ?
+                                        org.apache.logging.log4j.core.Filter.Result.NEUTRAL :
+                                        org.apache.logging.log4j.core.Filter.Result.ACCEPT
+                        );
+
+                levelMatchFilter.start();
+                levelMatchFilter.filter(event);
+                levelMatchFilter.stop();
+            }
+
+            // 3. LevelRangeFilter
+            if (data.remainingBytes() > 10) {
+                Level minLevel = data.consumeBoolean() ? Level.DEBUG : Level.INFO;
+                Level maxLevel = data.consumeBoolean() ? Level.ERROR : Level.FATAL;
+
+                org.apache.logging.log4j.core.filter.LevelRangeFilter levelRangeFilter =
+                        org.apache.logging.log4j.core.filter.LevelRangeFilter.createFilter(
+                                minLevel,
+                                maxLevel,
+                                data.consumeBoolean() ?
+                                        org.apache.logging.log4j.core.Filter.Result.ACCEPT :
+                                        org.apache.logging.log4j.core.Filter.Result.DENY,
+                                data.consumeBoolean() ?
+                                        org.apache.logging.log4j.core.Filter.Result.DENY :
+                                        org.apache.logging.log4j.core.Filter.Result.NEUTRAL
+                        );
+
+                levelRangeFilter.start();
+                levelRangeFilter.filter(event);
+                levelRangeFilter.stop();
+            }
+
+            thresholdFilter.stop();
+
+        } catch (Exception e) {
+            recordCrash("Filters", e);
+        }
+    }
+
+    private static void fuzzLookups(FuzzedDataProvider data) {
+        try {
+            // Test various lookup implementations
+
+            // 1. Environment lookup
+            org.apache.logging.log4j.core.lookup.EnvironmentLookup envLookup =
+                    new org.apache.logging.log4j.core.lookup.EnvironmentLookup();
+
+            // Generate some environment variable names to look up
+            String[] envVars = {"PATH", "HOME", "USER", "JAVA_HOME"};
+            String lookupKey = envVars[data.consumeInt(0, envVars.length - 1)];
+
+            // Try the lookup
+            envLookup.lookup(null, lookupKey);
+
+            // 2. Java lookup
+            if (data.remainingBytes() > 5) {
+                org.apache.logging.log4j.core.lookup.JavaLookup javaLookup =
+                        new org.apache.logging.log4j.core.lookup.JavaLookup();
+
+                String[] javaProps = {"version", "runtime", "vm", "os", "locale"};
+                String javaKey = javaProps[data.consumeInt(0, javaProps.length - 1)];
+
+                javaLookup.lookup(null, javaKey);
+            }
+
+            // 3. Map lookup with variable substitution
+            if (data.remainingBytes() > 10) {
+                java.util.Map<String, String> map = new java.util.HashMap<>();
+
+                // Add some entries to the map
+                String key1 = data.consumeString(5);
+                String value1 = data.consumeString(10);
+                map.put(key1, value1);
+
+                if (data.remainingBytes() > 10) {
+                    String key2 = data.consumeString(5);
+                    String value2 = data.consumeString(10);
+                    map.put(key2, value2);
+
+                    // Add one with a reference to the other
+                    map.put("combined", "${" + key1 + "}-${" + key2 + "}");
+                }
+
+                org.apache.logging.log4j.core.lookup.MapLookup mapLookup =
+                        new org.apache.logging.log4j.core.lookup.MapLookup(map);
+
+                // Try lookups
+                mapLookup.lookup(null, key1);
+
+                if (map.containsKey("combined")) {
+                    // This should trigger interpolation
+                    org.apache.logging.log4j.core.lookup.StrLookup strLookup =
+                            org.apache.logging.log4j.core.lookup.StrLookup.INSTANCE;
+                    strLookup.lookup("${" + key1 + "}");
+                }
+            }
+
+            // 4. Date lookup
+            if (data.remainingBytes() > 5) {
+                org.apache.logging.log4j.core.lookup.DateLookup dateLookup =
+                        new org.apache.logging.log4j.core.lookup.DateLookup();
+
+                String[] datePatterns = {"yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "dd MMM yyyy"};
+                String datePattern = datePatterns[data.consumeInt(0, datePatterns.length - 1)];
+
+                dateLookup.lookup(null, datePattern);
+            }
+
+        } catch (Exception e) {
+            recordCrash("Lookups", e);
+        }
+    }
+
+    private static void fuzzLayoutSerialization(FuzzedDataProvider data) {
+        try {
+            // Test various layout implementations and their serialization
+
+            // 1. PatternLayout serialization
+            String patternStr = data.remainingBytes() > 10 ?
+                    data.consumeString(Math.min(50, data.remainingBytes())) : "%m%n";
+
+            PatternLayout patternLayout = PatternLayout.newBuilder()
+                    .withPattern(patternStr)
+                    .withAlwaysWriteExceptions(data.consumeBoolean())
+                    .withNoConsoleNoAnsi(data.consumeBoolean())
+                    .build();
+
+            // Create a log event
+            LogEvent event = Log4jLogEvent.newBuilder()
+                    .setLoggerName("LayoutTest")
+                    .setLevel(data.consumeBoolean() ? Level.INFO : Level.ERROR)
+                    .setMessage(new SimpleMessage("Layout test message"))
+                    .build();
+
+            // Test various serialization methods
+            patternLayout.toByteArray(event);
+            patternLayout.toSerializable(event);
+            patternLayout.toString();
+
+            // 2. Try HtmlLayout if we have enough data
+            if (data.remainingBytes() > 10) {
+                org.apache.logging.log4j.core.layout.HtmlLayout htmlLayout =
+                        org.apache.logging.log4j.core.layout.HtmlLayout.newBuilder()
+                                .withTitle(data.consumeString(20))
+                                .withContentType(data.consumeBoolean() ? "text/html; charset=UTF-8" : "text/html")
+                                .withCharset(java.nio.charset.StandardCharsets.UTF_8)
+                                .withFontName(data.consumeBoolean() ? "Arial" : "Courier")
+                                .withFontSize(data.consumeBoolean() ? "10pt" : "12pt")
+                                .build();
+
+                // Serialize
+                htmlLayout.toByteArray(event);
+                htmlLayout.toSerializable(event);
+            }
+
+            // 3. Try CsvLayout if we have enough data
+            if (data.remainingBytes() > 10) {
+                org.apache.logging.log4j.core.layout.CsvLogEventLayout csvLayout =
+                        org.apache.logging.log4j.core.layout.CsvLogEventLayout.createLayout(
+                                data.consumeBoolean() ? ',' : ';',
+                                data.consumeBoolean() ? "\"" : "'",
+                                data.consumeBoolean() ? "\n" : "\r\n",
+                                java.nio.charset.StandardCharsets.UTF_8,
+                                data.consumeBoolean()
+                        );
+
+                // Serialize
+                csvLayout.toByteArray(event);
+                csvLayout.toSerializable(event);
+            }
+
+        } catch (Exception e) {
+            recordCrash("LayoutSerialization", e);
         }
     }
 
@@ -375,6 +734,8 @@ public class Log4jFuzzer {
             recordCrash("MessagePattern with special pattern: " + pattern, e);
         }
     }
+
+
 
     private static void recordCrash(String input, Exception e) {
         crashCount++;

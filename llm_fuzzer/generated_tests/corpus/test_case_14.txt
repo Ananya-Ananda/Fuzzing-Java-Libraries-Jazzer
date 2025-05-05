@@ -1,1 +1,1 @@
-%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n
+{"key": "value", "jndi": "${jndi:rmi://localhost:1099/jndiLookup}", "long": "a".repeat(1_000_000)}

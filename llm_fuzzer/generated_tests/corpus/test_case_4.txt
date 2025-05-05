@@ -1,1 +1,1 @@
-${jndi:ldap:///example.com}
+%notaformat %anothernonformat %%percent

