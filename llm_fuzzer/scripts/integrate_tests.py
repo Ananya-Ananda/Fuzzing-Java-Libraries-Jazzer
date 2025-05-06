@@ -64,6 +64,69 @@ def create_corpus_files(test_cases, corpus_dir="generated_tests/corpus"):
     print(f"Created {len(test_cases)} corpus files in {corpus_dir}")
     return corpus_dir
 
+def extract_patterns_from_fuzz_methods(fuzz_methods_dir, output_corpus_dir):
+    """Extract interesting test patterns from LLM-generated fuzz methods."""
+    import re
+    import os
+
+    # Ensure output directory exists
+    os.makedirs(output_corpus_dir, exist_ok=True)
+
+    # Get the current highest test case number
+    existing_files = [f for f in os.listdir(output_corpus_dir) if f.startswith("test_case_")]
+    next_test_num = 0
+    if existing_files:
+        nums = [int(re.search(r"test_case_(\d+)\.txt", f).group(1)) for f in existing_files if re.search(r"test_case_(\d+)\.txt", f)]
+        if nums:
+            next_test_num = max(nums) + 1
+
+    # Patterns to extract (regex patterns for interesting inputs)
+    patterns = [
+        r'"(.*?${jndi:.*?}.*?)"',  # JNDI patterns
+        r'"(%.*?%n)"',              # Log pattern layouts
+        r'"({.*?})"',               # JSON patterns
+        r'"(.*?\\.*?)"',            # Escape sequences
+        r'"(.*?%\{.*?\}.*?)"'       # MDC/NDC patterns
+    ]
+
+    # Read all fuzz method files
+    all_methods_file = os.path.join(fuzz_methods_dir, "all_methods.java")
+    if not os.path.exists(all_methods_file):
+        print(f"File not found: {all_methods_file}")
+        return []
+
+    with open(all_methods_file, 'r') as f:
+        content = f.read()
+
+    # Extract all matches
+    extracted_patterns = []
+    for pattern in patterns:
+        matches = re.findall(pattern, content)
+        extracted_patterns.extend(matches)
+
+    # Remove duplicates
+    extracted_patterns = list(set(extracted_patterns))
+
+    # Save to corpus files
+    added_files = []
+    for pattern in extracted_patterns:
+        # Clean up the pattern
+        pattern = pattern.replace('\\"', '"').replace('\\\\', '\\')
+
+        # Skip if it's too short or just contains common characters
+        if len(pattern) < 3 or pattern.strip() in ['{}', '[]', '()', '%n', '%m']:
+            continue
+
+        # Write to file
+        filename = os.path.join(output_corpus_dir, f"test_case_{next_test_num}.txt")
+        with open(filename, 'w') as f:
+            f.write(pattern)
+        added_files.append(filename)
+        next_test_num += 1
+
+    print(f"Added {len(added_files)} new test cases extracted from fuzz methods")
+    return added_files
+
 def generate_enhanced_fuzzer_wrapper():
     """Generate a wrapper for the log4j fuzzer that uses our generated tests."""
     wrapper_path = "../Log4jFuzzerWrapper.java"

@@ -67,7 +67,7 @@ def initialize_model():
 
 
 
-def generate_log4j_test_cases(llm, num_cases=5):
+def generate_log4j_test_cases(llm, num_cases=25):
     """Generate test cases for log4j fuzzing."""
     prompt_template = """<|im_start|>system
 You are an expert Java developer specializing in creating test cases for fuzzing the log4j library.
@@ -119,143 +119,195 @@ Return ONLY the test string without any explanation or code wrapping.
     return test_cases
 
 
-def generate_fuzz_methods(llm, num_methods=5):
-    """Generate fuzz test methods using the LLM."""
 
-    # Examples from existing Log4jFuzzer.java to use as few-shot examples
-    examples = """
-    private static void fuzzPatternLayout(FuzzedDataProvider data) {
-        String pattern = "";
-        try {
-            // Ensure we have some data to consume
-            if (data.remainingBytes() > 0) {
-                pattern = data.consumeString(Math.min(100, data.remainingBytes()));
-            } else {
-                pattern = "%m%n"; // Default pattern if no data
-            }
+def generate_fuzz_method(llm, component, existing_methods, fuzzer_code):
+    """Generate a fuzz test method for a specific Log4j component."""
+    method_name = f"fuzz{component['name']}"
 
-            PatternLayout layout = PatternLayout.newBuilder()
-                    .withPattern(pattern)
-                    .build();
+    # Check if we already have a method with this name
+    if method_name in existing_methods:
+        print(f"Method {method_name} already exists, generating alternative")
+        method_name = f"fuzz{component['name']}Alternative"
+        if method_name in existing_methods:
+            return None  # Skip if alternative also exists
 
-            LogEvent event = Log4jLogEvent.newBuilder()
-                    .setLoggerName("FuzzerLogger")
-                    .setLevel(Level.INFO)
-                    .setMessage(new SimpleMessage("Fuzzed layout test"))
-                    .build();
-
-            layout.toByteArray(event);
-        } catch (Exception e) {
-            recordCrash("PatternLayout with pattern: " + pattern, e);
-        }
-    }
-    
-    private static void fuzzLogMessages(FuzzedDataProvider data) {
-        String message = "";
-        try {
-            // Ensure we have data to consume
-            if (data.remainingBytes() > 0) {
-                message = data.consumeString(Math.min(100, data.remainingBytes()));
-            } else {
-                message = "default message";
-            }
-
-            // Test logging the fuzzer-generated message
-            logger.info("Test message: {}", message);
-            logger.error("Error with parameter: {}", message);
-
-            // Try a dynamic log level if we have more data
-            if (data.remainingBytes() > 0) {
-                String levelStr = data.consumeString(Math.min(10, data.remainingBytes())).toUpperCase();
-                Level level = Level.toLevel(levelStr, Level.INFO);
-                logger.log(level, "Message at dynamic level: {}", message);
-            }
-
-            // Try context-based logging
-            ThreadContext.put("fuzzKey", message);
-            logger.info("Context map with fuzzed key: {}", message);
-            ThreadContext.clearAll();
-        } catch (Exception e) {
-            recordCrash("LogMessages with message: " + message, e);
-        }
-    }
-    """
-
-    # Components to generate fuzz methods for
-    components = [
-        {"name": "MDC", "description": "Mapped Diagnostic Context (MDC) - key-value pairs that are bound to the thread context for logging"},
-        {"name": "Markers", "description": "Markers are named objects used for filtering log statements"},
-        {"name": "StructuredLogging", "description": "Structured logging with MapMessage and other structured message types"},
-        {"name": "LoggerConfig", "description": "Logger configuration and manipulation of logger parameters"},
-        {"name": "Filters", "description": "Log event filters including ThresholdFilter, LevelMatchFilter, and similar components"}
-    ]
-
-    prompt_template = """<|im_start|>system
-You are an expert Java developer specializing in creating fuzz test methods for testing the log4j library.
+    prompt_template = f"""<|im_start|>system
+You are an expert Java developer specializing in creating fuzz test methods for the Log4j library.
 <|im_end|>
 <|im_start|>user
-Create a Java method named "fuzz{name}" that will test the {description} functionality of log4j.
+Create a new fuzz test method named "fuzz{component['name']}" for Log4j's {component['name']} component. This component handles {component['description']}.
 
 The method should:
-1. Take a parameter of type FuzzedDataProvider
-2. Create and manipulate log4j objects related to {description}
-3. Handle exceptions properly and record crashes
-4. Follow the same pattern as other fuzz test methods in the Log4jFuzzer class
+1. Take a FuzzedDataProvider parameter named "data"
+2. Create and manipulate {component['name']} objects with fuzzed inputs
+3. Handle exceptions properly with recordCrash
+4. Be thorough in testing potential security issues: {component['security_reason']}
 
-Here are examples of existing fuzz test methods to guide your implementation:
-
-{examples}
-
-Here's the signature you should follow:
+Follow the same pattern as other fuzz methods in the existing Log4jFuzzer class. Here's the method signature:
 
 ```java
-private static void fuzz{name}(FuzzedDataProvider data) {{
+private static void fuzz{component['name']}(FuzzedDataProvider data) {{
     try {{
         // Your fuzz testing code here
-        // Use data.consumeXXX methods to get input values
         
     }} catch (Exception e) {{
-        recordCrash("{name} fuzzing", e);
+        recordCrash("{component['name']} fuzzing", e);
     }}
 }}
-Generate ONLY the method implementation, with no additional explanation.
+I need ONLY the complete implementation of this method, with no extra explanation.
 <|im_end|>
 <|im_start|>assistant
 """
-    generated_methods = []
-
-    for component in components:
-        print(f"Generating fuzz test method for {component['name']}...")
-
-        # Format the prompt with component details
-        formatted_prompt = prompt_template.format(
-            name=component['name'],
-            description=component['description'],
-            examples=examples
-        )
-
         # Generate the method
-        completion = llm.create_completion(
-            prompt=formatted_prompt,
-            max_tokens=1024,
-            temperature=0.7,
-            top_p=0.9,
-            repeat_penalty=1.1,
-            stop=["<|im_end|>"]
-        )
+    completion = llm.create_completion(
+        prompt=prompt_template,
+        max_tokens=1536,
+        temperature=0.7,
+        top_p=0.9,
+        repeat_penalty=1.1,
+        stop=["<|im_end|>"]
+    )
 
-        # Extract the generated method
-        method = completion["choices"][0]["text"].strip()
-        generated_methods.append({
-            "name": component['name'],
-            "method": method
-        })
+    # Extract the generated code
+    method_code = completion["choices"][0]["text"].strip()
 
-        # Sleep briefly to avoid overwhelming the model
-        time.sleep(1)
+    # Clean up the code
+    method_code = clean_generated_code(method_code)
 
-    return generated_methods
+    return {
+        "name": component['name'],
+        "method_name": method_name,
+        "method_code": method_code
+    }
 
+
+def generate_fuzz_methods(llm, num_methods=5):
+    """Generate multiple fuzz test methods using the LLM."""
+    methods = []
+
+    # Get components to fuzz
+    components = generate_log4j_components(llm)
+
+    # Get existing fuzzer information
+    existing_info = parse_existing_fuzzer()
+    existing_methods = existing_info['method_names']
+
+    # Generate methods for each component
+    count = 0
+    for component in components:
+        if count >= num_methods:
+            break
+
+        print(f"Generating fuzz method for {component['name']}...")
+        method = generate_fuzz_method(llm, component, existing_methods, existing_info['content'])
+
+        if method:
+            methods.append(method)
+            count += 1
+            # Brief pause to avoid overwhelming the model
+            time.sleep(1)
+
+    return methods
+
+def generate_integration_code(llm, existing_info, new_methods):
+    """Generate updated fuzzerTestOneInput method to include new fuzz methods."""
+    max_case = existing_info['max_case_number']
+
+    # Extract the current switch statement
+    current_switch = re.search(r'switch\s*\(methodToRun\)\s*{(.*?)}', existing_info['content'], re.DOTALL)
+    if not current_switch:
+        print("Could not find switch statement in fuzzerTestOneInput method")
+        return None
+
+    current_switch_content = current_switch.group(1)
+
+    # Create a list of new case statements
+    new_cases = []
+    for i, method in enumerate(new_methods, start=max_case + 1):
+        method_name = method["method_name"]
+        new_case = f"""
+            case {i}:
+                // New method: {method_name}
+                {method_name}(data);
+                break;"""
+        new_cases.append(new_case)
+
+    # Determine how to update the methodToRun calculation
+    method_count = max_case + 1 + len(new_methods)
+    method_selection_code = f"int methodToRun = data.remainingBytes() > 0 ? Math.abs(data.consumeInt()) % {method_count} : 0;"
+
+    # Create updated switch statement
+    updated_switch = f"switch (methodToRun) {{{current_switch_content}"
+
+    for new_case in new_cases:
+        updated_switch += new_case
+
+    updated_switch += "\n        }"
+
+    return {
+        "method_selection_code": method_selection_code,
+        "updated_switch": updated_switch
+    }
+
+
+
+
+def generate_patch_script(existing_info, methods, integration_code, output_dir="generated_tests/fuzz_methods"):
+    """Generate a patch script to automatically integrate new methods."""
+    fuzzer_path = "../log4j-fuzz/src/main/java/org/example/Log4jFuzzer.java"
+
+    patch_script = f"""#!/bin/bash
+# Auto-generated script to patch Log4jFuzzer.java with new fuzz methods
+
+FUZZER_PATH="{fuzzer_path}"
+BACKUP_PATH="$FUZZER_PATH.bak"
+
+# Create backup
+cp "$FUZZER_PATH" "$BACKUP_PATH"
+echo "Created backup at $BACKUP_PATH"
+
+# Find the closing brace of the class to insert methods before
+CLASS_END=$(grep -n "}}" "$FUZZER_PATH" | tail -1 | cut -d':' -f1)
+
+# Insert new methods before the class end
+head -n $((CLASS_END-1)) "$FUZZER_PATH" > "$FUZZER_PATH.new"
+cat "{output_dir}/all_methods.java" >> "$FUZZER_PATH.new"
+echo "}}" >> "$FUZZER_PATH.new"
+
+# Update the method selection code
+METHOD_SELECTION='{integration_code["method_selection_code"]}'
+sed -i '' "s/int methodToRun = .*/$METHOD_SELECTION/" "$FUZZER_PATH.new"
+
+# Update the switch statement
+SWITCH_START=$(grep -n "switch" "$FUZZER_PATH" | grep "methodToRun" | head -1 | cut -d':' -f1)
+SWITCH_END=$(grep -n "}}" "$FUZZER_PATH" | awk -v start=$SWITCH_START '$1 > start' | head -1 | cut -d':' -f1)
+
+# Create a temporary file with the new switch statement
+cat > /tmp/new_switch.txt << 'EOF'
+{integration_code["updated_switch"]}
+EOF
+
+# Replace the old switch statement with the new one
+sed -i '' "${{SWITCH_START}},$(($SWITCH_END))s/switch.*}}/$(<\/tmp\/new_switch.txt)/" "$FUZZER_PATH.new"
+
+# Save the list of method names for summary reporting
+echo "{','.join([m['method_name'] for m in methods])}" > "{output_dir}/method_names.txt"
+
+# Move the new file into place
+mv "$FUZZER_PATH.new" "$FUZZER_PATH"
+echo "Updated $FUZZER_PATH with new fuzz methods"
+echo "Added {len(methods)} new methods: {', '.join([m['method_name'] for m in methods])}"
+"""
+
+    script_path = f"{output_dir}/apply_patch.sh"
+    with open(script_path, 'w') as f:
+        f.write(patch_script)
+
+    # Make the script executable
+    os.chmod(script_path, 0o755)
+
+    print(f"Generated patch script at {script_path}")
+    print("Run this script to automatically add the new methods to Log4jFuzzer.java")
 
 
 def generate_integration_code(llm, method_names):
@@ -398,6 +450,90 @@ def save_results(methods, integration_code):
         f.write(integration_code)
 
     print(f"Saved {len(methods)} fuzz methods and integration code to generated_tests/fuzz_methods/")
+
+def parse_existing_fuzzer(fuzzer_path="../log4j-fuzz/src/main/java/org/example/Log4jFuzzer.java"):
+    """Parse the existing Log4jFuzzer.java file to identify current fuzz methods."""
+    try:
+        with open(fuzzer_path, 'r') as f:
+            content = f.read()
+
+        # Extract all fuzz method names
+        fuzz_methods = re.findall(r'private static void fuzz(\w+)\(FuzzedDataProvider data', content)
+
+        # Extract switch cases from fuzzerTestOneInput method
+        switch_content = re.search(r'switch\s*\(methodToRun\)\s*{(.*?)}', content, re.DOTALL)
+        if switch_content:
+            max_case = re.findall(r'case\s+(\d+):', switch_content.group(1))
+            max_case_number = max(map(int, max_case)) if max_case else -1
+        else:
+            max_case_number = -1
+
+        return {
+            'method_names': fuzz_methods,
+            'max_case_number': max_case_number,
+            'content': content
+        }
+    except Exception as e:
+        print(f"Error parsing Log4jFuzzer.java: {e}")
+        return {
+            'method_names': [],
+            'max_case_number': -1,
+            'content': ""
+        }
+
+def generate_log4j_components(llm):
+    """Generate a list of Log4j components to target for fuzzing."""
+    prompt_template = """<|im_start|>system
+You are an expert Java developer specializing in the Log4j library and security testing.
+<|im_end|>
+<|im_start|>user
+List 10 different Log4j components/classes that would be good candidates for focused fuzzing. For each component, provide:
+1. The component name (e.g., "SocketAppender")
+2. A short description of its functionality
+3. Why it might be security-sensitive
+
+Format your response as a JSON array of objects with properties: name, description, security_reason.
+<|im_end|>
+<|im_start|>assistant
+"""
+
+    # Generate component list
+    completion = llm.create_completion(
+        prompt=prompt_template,
+        max_tokens=1024,
+        temperature=0.7,
+        top_p=0.9,
+        repeat_penalty=1.1,
+        stop=["<|im_end|>"]
+    )
+
+    # Extract the generated text
+    response_text = completion["choices"][0]["text"].strip()
+
+    # Extract the JSON from the response
+    try:
+        # Find JSON content between triple backticks if present
+        json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+        if json_match:
+            components = json.loads(json_match.group(1))
+        else:
+            # Try to extract JSON directly
+            components = json.loads(response_text)
+
+        print(f"Generated list of {len(components)} Log4j components to target")
+        return components
+    except Exception as e:
+        print(f"Error parsing component list: {e}")
+        # Return a default list in case of failure
+        return [
+            {"name": "JndiLookup", "description": "JNDI lookup handling", "security_reason": "Vulnerable to Log4Shell"},
+            {"name": "SocketAppender", "description": "Network logging", "security_reason": "Network exposure"},
+            {"name": "JdbcAppender", "description": "Database logging", "security_reason": "SQL injection"},
+            {"name": "RollingFileAppender", "description": "File management", "security_reason": "Path traversal"},
+            {"name": "PropertySetter", "description": "Object property manipulation", "security_reason": "Reflection abuse"},
+            {"name": "ScriptPatternSelector", "description": "Pattern selection using scripts", "security_reason": "Script injection"}
+        ]
+
 
 
 def clean_test_cases(input_filename="log4j_test_cases.json", output_filename="cleaned_test_cases.json"):

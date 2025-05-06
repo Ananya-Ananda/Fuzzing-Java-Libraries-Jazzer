@@ -1,9 +1,14 @@
 Fuzzing Summary:
 ----------------
-Total executions: 10000
-Total runtime: 6 seconds
-Average executions per second: 1513.0882130428204
-Total crashes detected: 71
+Total executions: 60000
+Total runtime: 21 seconds
+Average executions per second: 2809.383340356792
+Total crashes detected: 2563
+Used LLM-generated test cases: Yes
+Number of test cases: 21
+
+LLM-Generated Fuzz Methods: 5
+Methods: fuzzXmlConfiguration,fuzzAppenderBuilders,fuzzFilters,fuzzLookups,fuzzLayoutSerialization
 
 This summary shows how many fuzzing iterations were executed.
 While we can't directly measure code coverage of Log4j,

@@ -80,6 +80,10 @@ public class Log4jFuzzer {
     public static void fuzzerTestOneInput(FuzzedDataProvider data) {
         totalExecutions++;
 
+        // Set a timeout for this run
+        final long startTimeThisRun = System.currentTimeMillis();
+        final long timeoutMillis = 300 * 1000; // 300 seconds
+
         // Make sure test cases are loaded
         if (!loadedTestCases) {
             loadTestCases();
@@ -101,72 +105,119 @@ public class Log4jFuzzer {
         }
 
         try {
-            // Choose which test method to run based on fuzzed data
-            int methodToRun = data.remainingBytes() > 0 ?
-                    Math.abs(data.consumeInt()) % 9 : 0;  // Now we have 9 methods instead of 4
+            // Choose which test method to run
+            int methodToRun = data.remainingBytes() > 0 ? Math.abs(data.consumeInt()) % 9 : 0;
 
-            switch (methodToRun) {
-                case 0:
-                    // Original method: Fuzz PatternLayout
-                    if (specialTestCase != null && specialTestCase.contains("%")) {
-                        fuzzPatternLayout(data, specialTestCase);
-                    } else {
+            // Check if we've already exceeded the timeout
+            if (System.currentTimeMillis() - startTimeThisRun > timeoutMillis) {
+                throw new RuntimeException("Timeout exceeded before method execution");
+            }
+
+            // Create a thread to monitor timeout
+            Thread watchdog = new Thread(() -> {
+                try {
+                    Thread.sleep(timeoutMillis);
+                    // If we get here, timeout occurred
+                    System.err.println("Execution timeout detected - interrupting main thread");
+                    Thread.currentThread().interrupt();
+                } catch (InterruptedException e) {
+                    // Watchdog was interrupted normally, no action needed
+                }
+            });
+            watchdog.setDaemon(true);
+            watchdog.start();
+
+            try {
+                switch (methodToRun) {
+                    case 0:
+                        // Original method: Fuzz PatternLayout
+                        if (specialTestCase != null && specialTestCase.contains("%")) {
+                            fuzzPatternLayout(data, specialTestCase);
+                        } else {
+                            fuzzPatternLayout(data);
+                        }
+                        break;
+                    case 1:
+                        // Original method: Fuzz Log Messages
+                        if (specialTestCase != null) {
+                            fuzzLogMessages(data, specialTestCase);
+                        } else {
+                            fuzzLogMessages(data);
+                        }
+                        break;
+                    case 2:
+                        // Original method: Fuzz JSON Layout
+                        if (specialTestCase != null && specialTestCase.contains("{")) {
+                            fuzzJsonLayout(data, specialTestCase);
+                        } else {
+                            fuzzJsonLayout(data);
+                        }
+                        break;
+                    case 3:
+                        // Original method: Fuzz Message Pattern
+                        if (specialTestCase != null && specialTestCase.contains("{")) {
+                            fuzzMessagePattern(data, specialTestCase);
+                        } else {
+                            fuzzMessagePattern(data);
+                        }
+                        break;
+                    // Cases for your LLM-generated methods
+                    case 4:
+                        fuzzXmlConfiguration(data);
+                        break;
+                    case 5:
+                        fuzzAppenderBuilders(data);
+                        break;
+                    case 6:
+                        fuzzFilters(data);
+                        break;
+                    case 7:
+                        fuzzLookups(data);
+                        break;
+                    case 8:
+                        fuzzLayoutSerialization(data);
+                        break;
+                    default:
+                        // Fall back to a safe method
                         fuzzPatternLayout(data);
-                    }
-                    break;
-                case 1:
-                    // Original method: Fuzz Log Messages
-                    if (specialTestCase != null) {
-                        fuzzLogMessages(data, specialTestCase);
-                    } else {
-                        fuzzLogMessages(data);
-                    }
-                    break;
-                case 2:
-                    // Original method: Fuzz JSON Layout
-                    if (specialTestCase != null && specialTestCase.contains("{")) {
-                        fuzzJsonLayout(data, specialTestCase);
-                    } else {
-                        fuzzJsonLayout(data);
-                    }
-                    break;
-                case 3:
-                    // Original method: Fuzz Message Pattern
-                    if (specialTestCase != null && specialTestCase.contains("{")) {
-                        fuzzMessagePattern(data, specialTestCase);
-                    } else {
-                        fuzzMessagePattern(data);
-                    }
-                    break;
-                case 4:
-                    // New method: Fuzz XML Configuration
-                    fuzzXmlConfiguration(data);
-                    break;
-                case 5:
-                    // New method: Fuzz Appender Builders
-                    fuzzAppenderBuilders(data);
-                    break;
-                case 6:
-                    // New method: Fuzz Filters
-                    fuzzFilters(data);
-                    break;
-                case 7:
-                    // New method: Fuzz Lookups
-                    fuzzLookups(data);
-                    break;
-                case 8:
-                    // New method: Fuzz Layout Serialization
-                    fuzzLayoutSerialization(data);
-                    break;
+                }
+
+                // If we got here, execution completed successfully
+                watchdog.interrupt(); // Stop the watchdog
+
+            } catch (Exception e) {
+                // Check if this was due to a timeout interrupt
+                if (Thread.interrupted() || System.currentTimeMillis() - startTimeThisRun > timeoutMillis) {
+                    throw new RuntimeException("Method execution timed out after " +
+                            ((System.currentTimeMillis() - startTimeThisRun) / 1000) + " seconds", e);
+                }
+                throw e; // Re-throw if it wasn't a timeout
             }
 
-            // Generate a report after a certain time
-            if (totalExecutions % 1000 == 0 && System.currentTimeMillis() - startTime > 60000) {
-                generateReport();
+        } catch (RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("timed out")) {
+                // This was a timeout
+                System.err.println("Timeout occurred during fuzzing - moving to next input");
+                recordCrash("Timeout during fuzzing: " +
+                        (specialTestCase != null ? specialTestCase : "generated data"), e);
+            } else {
+                // Normal exception
+                recordCrash("Runtime exception: " + e.getMessage(), e);
             }
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // Catch all possible errors (including NoClassDefFoundError and Error)
             recordCrash("Main fuzzer method with input: " +
-                    (specialTestCase != null ? specialTestCase : "generated data"), e);
+                    (specialTestCase != null ? specialTestCase : "generated data"), t);
+        }
+
+        // Check for interrupt and clear it
+        if (Thread.interrupted()) {
+            System.err.println("Thread was interrupted - continuing with next input");
+        }
+
+        // Generate a report after a certain time
+        if (totalExecutions % 1000 == 0 && System.currentTimeMillis() - startTime > 60000) {
+            generateReport();
         }
     }
 
@@ -317,15 +368,15 @@ public class Log4jFuzzer {
             // 2. LevelMatchFilter
             if (data.remainingBytes() > 10) {
                 org.apache.logging.log4j.core.filter.LevelMatchFilter levelMatchFilter =
-                        org.apache.logging.log4j.core.filter.LevelMatchFilter.createFilter(
-                                data.consumeBoolean() ? Level.DEBUG : Level.WARN,
-                                data.consumeBoolean() ?
+                        org.apache.logging.log4j.core.filter.LevelMatchFilter.newBuilder()
+                                .setLevel(data.consumeBoolean() ? Level.DEBUG : Level.WARN)
+                                .setOnMatch(data.consumeBoolean() ?
                                         org.apache.logging.log4j.core.Filter.Result.ACCEPT :
-                                        org.apache.logging.log4j.core.Filter.Result.DENY,
-                                data.consumeBoolean() ?
+                                        org.apache.logging.log4j.core.Filter.Result.DENY)
+                                .setOnMismatch(data.consumeBoolean() ?
                                         org.apache.logging.log4j.core.Filter.Result.NEUTRAL :
-                                        org.apache.logging.log4j.core.Filter.Result.ACCEPT
-                        );
+                                        org.apache.logging.log4j.core.Filter.Result.ACCEPT)
+                                .build();
 
                 levelMatchFilter.start();
                 levelMatchFilter.filter(event);
@@ -413,9 +464,9 @@ public class Log4jFuzzer {
 
                 if (map.containsKey("combined")) {
                     // This should trigger interpolation
-                    org.apache.logging.log4j.core.lookup.StrLookup strLookup =
-                            org.apache.logging.log4j.core.lookup.StrLookup.INSTANCE;
-                    strLookup.lookup("${" + key1 + "}");
+                    org.apache.logging.log4j.core.lookup.StrSubstitutor strSubstitutor =
+                            new org.apache.logging.log4j.core.lookup.StrSubstitutor(map);
+                    strSubstitutor.replace("${" + key1 + "}");
                 }
             }
 
@@ -463,37 +514,52 @@ public class Log4jFuzzer {
 
             // 2. Try HtmlLayout if we have enough data
             if (data.remainingBytes() > 10) {
-                org.apache.logging.log4j.core.layout.HtmlLayout htmlLayout =
-                        org.apache.logging.log4j.core.layout.HtmlLayout.newBuilder()
-                                .withTitle(data.consumeString(20))
-                                .withContentType(data.consumeBoolean() ? "text/html; charset=UTF-8" : "text/html")
-                                .withCharset(java.nio.charset.StandardCharsets.UTF_8)
-                                .withFontName(data.consumeBoolean() ? "Arial" : "Courier")
-                                .withFontSize(data.consumeBoolean() ? "10pt" : "12pt")
-                                .build();
+                try {
+                    org.apache.logging.log4j.core.layout.HtmlLayout htmlLayout =
+                            org.apache.logging.log4j.core.layout.HtmlLayout.newBuilder()
+                                    .withTitle(data.consumeString(20))
+                                    .withContentType(data.consumeBoolean() ? "text/html; charset=UTF-8" : "text/html")
+                                    .withCharset(java.nio.charset.StandardCharsets.UTF_8)
+                                    .withFontName(data.consumeBoolean() ? "Arial" : "Courier")
+                                    .withFontSize(data.consumeBoolean() ?
+                                            org.apache.logging.log4j.core.layout.HtmlLayout.FontSize.SMALL :
+                                            org.apache.logging.log4j.core.layout.HtmlLayout.FontSize.MEDIUM)
+                                    .build();
 
-                // Serialize
-                htmlLayout.toByteArray(event);
-                htmlLayout.toSerializable(event);
+                    // Serialize
+                    htmlLayout.toByteArray(event);
+                    htmlLayout.toSerializable(event);
+                } catch (Throwable e) {
+                    recordCrash("HtmlLayout", e);
+                }
             }
 
-            // 3. Try CsvLayout if we have enough data
+            // 3. Try CsvLayout if we have enough data - using try-catch to avoid dependency issues
             if (data.remainingBytes() > 10) {
-                org.apache.logging.log4j.core.layout.CsvLogEventLayout csvLayout =
-                        org.apache.logging.log4j.core.layout.CsvLogEventLayout.createLayout(
-                                data.consumeBoolean() ? ',' : ';',
-                                data.consumeBoolean() ? "\"" : "'",
-                                data.consumeBoolean() ? "\n" : "\r\n",
-                                java.nio.charset.StandardCharsets.UTF_8,
-                                data.consumeBoolean()
-                        );
+                try {
+                    // First check if the class is available
+                    Class<?> csvFormatClass = Class.forName("org.apache.commons.csv.CSVFormat");
+                    if (csvFormatClass != null) {
+                        // If we reach here, the class is available
+                        // Use a simple version to avoid method signature issues
+                        org.apache.logging.log4j.core.layout.CsvLogEventLayout csvLayout =
+                                org.apache.logging.log4j.core.layout.CsvLogEventLayout.createDefaultLayout();
 
-                // Serialize
-                csvLayout.toByteArray(event);
-                csvLayout.toSerializable(event);
+                        // Serialize if we have a valid layout
+                        if (csvLayout != null) {
+                            csvLayout.toByteArray(event);
+                            csvLayout.toSerializable(event);
+                        }
+                    }
+                } catch (ClassNotFoundException e) {
+                    // Skip silently - the dependency is not available
+                    System.out.println("Skipping CsvLogEventLayout test - commons-csv dependency not available");
+                } catch (Throwable e) {
+                    recordCrash("CsvLayout", e);
+                }
             }
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
             recordCrash("LayoutSerialization", e);
         }
     }
@@ -737,16 +803,16 @@ public class Log4jFuzzer {
 
 
 
-    private static void recordCrash(String input, Exception e) {
+    private static void recordCrash(String input, Throwable t) {
         crashCount++;
         try (FileWriter writer = new FileWriter("fuzzing_crashes.txt", true)) {
             writer.write("=== CRASH #" + crashCount + " ===\n");
             writer.write("Input: " + input + "\n");
-            writer.write("Exception: " + e.getClass().getName() + ": " + e.getMessage() + "\n");
+            writer.write("Exception: " + t.getClass().getName() + ": " + t.getMessage() + "\n");
 
             // Record stack trace
             writer.write("Stack trace:\n");
-            for (StackTraceElement element : e.getStackTrace()) {
+            for (StackTraceElement element : t.getStackTrace()) {
                 writer.write("  " + element.toString() + "\n");
             }
             writer.write("============\n\n");
@@ -766,6 +832,24 @@ public class Log4jFuzzer {
             writer.write("Total crashes detected: " + crashCount + "\n");
             writer.write("Used LLM-generated test cases: " + (loadedTestCases ? "Yes" : "No") + "\n");
             writer.write("Number of test cases: " + TEST_CASES.size() + "\n");
+
+            // Add information about LLM-generated fuzz methods
+            try {
+                File methodNamesFile = new File("../llm_fuzzer/generated_tests/fuzz_methods/method_names.txt");
+                if (methodNamesFile.exists()) {
+                    BufferedReader reader = new BufferedReader(new FileReader(methodNamesFile));
+                    String methodNames = reader.readLine();
+                    reader.close();
+
+                    if (methodNames != null && !methodNames.isEmpty()) {
+                        String[] methods = methodNames.split(",");
+                        writer.write("\nLLM-Generated Fuzz Methods: " + methods.length + "\n");
+                        writer.write("Methods: " + methodNames + "\n");
+                    }
+                }
+            } catch (IOException e) {
+                // Just skip if we can't read the file
+            }
 
             writer.write("\nThis summary shows how many fuzzing iterations were executed.\n");
             writer.write("While we can't directly measure code coverage of Log4j,\n");
