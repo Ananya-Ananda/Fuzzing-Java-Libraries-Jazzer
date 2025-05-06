@@ -238,11 +238,16 @@ JAVA_TOOL_OPTIONS="-javaagent:$HOME/.m2/repository/org/jacoco/org.jacoco.agent/0
 """)
 
 if __name__ == "__main__":
-    test_cases = load_test_cases()
-    if test_cases:
-        dictionary_path = generate_jazzer_dictionary(test_cases)
-        corpus_dir = create_corpus_files(test_cases)
-        wrapper_path = generate_enhanced_fuzzer_wrapper()
-        print_jazzer_command(dictionary_path)
-    else:
-        print("No test cases found. Please run clean_test_cases.py first.")
+    try:
+        test_cases = load_test_cases()
+        if test_cases:
+            dictionary_path = generate_jazzer_dictionary(test_cases)
+            corpus_dir = create_corpus_files(test_cases)
+            wrapper_path = generate_enhanced_fuzzer_wrapper()
+            print_jazzer_command(dictionary_path)
+        else:
+            print("No test cases found. Please run clean_test_cases.py first.")
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()

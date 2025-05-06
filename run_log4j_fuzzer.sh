@@ -24,7 +24,7 @@ cleanup_and_report() {
 PROJECT_DIR="$HOME/Documents/UVA/Sem2/Software Analysis/Fuzzing-Java-Libraries-Jazzer"
 LOG4J_FUZZ_DIR="$PROJECT_DIR/log4j-fuzz"
 LLM_FUZZER_DIR="$PROJECT_DIR/llm_fuzzer"
-RUNS=60000
+RUNS=100000
 DICTIONARY="$LLM_FUZZER_DIR/generated_tests/log4j_dictionary.dict"
 JACOCO_AGENT="$HOME/.m2/repository/org/jacoco/org.jacoco.agent/0.8.10/org.jacoco.agent-0.8.10-runtime.jar"
 JACOCO_CLI="$PROJECT_DIR/jacococli.jar"
@@ -87,9 +87,34 @@ else
     fi
 fi
 
+
+# Step 3: Apply patches to Log4jFuzzer.java
+echo -e "\n${YELLOW}Step 3: Applying patches to Log4jFuzzer.java${NC}"
+PATCH_SCRIPT="$LLM_FUZZER_DIR/generated_tests/fuzz_methods/apply_patch.sh"
+if [ -f "$PATCH_SCRIPT" ]; then
+    echo "Found patch script, applying..."
+    chmod +x "$PATCH_SCRIPT"
+    "$PATCH_SCRIPT"
+    echo "Patch applied successfully."
+else
+    echo "Patch script not found at $PATCH_SCRIPT. Generating methods first..."
+    cd "$LLM_FUZZER_DIR/scripts"
+    python generate_test_cases.py 2
+
+    # Check again for the patch script
+    if [ -f "$PATCH_SCRIPT" ]; then
+        echo "Found patch script, applying..."
+        chmod +x "$PATCH_SCRIPT"
+        "$PATCH_SCRIPT"
+        echo "Patch applied successfully."
+    else
+        echo "Failed to generate patch script. Skipping this step."
+    fi
+fi
+
 echo -e "\n${YELLOW}Step 3b: Extracting test patterns from fuzz methods${NC}"
 cd "$LLM_FUZZER_DIR/scripts"
-python -c "
+cat > extract_patterns.py << 'EOF'
 import os
 import re
 import sys
@@ -109,15 +134,6 @@ if existing_files:
     if nums:
         next_test_num = max(nums) + 1
 
-# Patterns to extract (regex patterns for interesting inputs)
-patterns = [
-    r'\"(.*?\${jndi:.*?}.*?)\"',  # JNDI patterns
-    r'\"(%.*?%n)\"',              # Log pattern layouts
-    r'\"{(.*?)}\"',               # JSON patterns
-    r'\"(.*?\\\\.*?)\"',           # Escape sequences
-    r'\"(.*?%\{.*?\}.*?)\"'       # MDC/NDC patterns
-]
-
 # Read all fuzz method files
 all_methods_file = os.path.join(fuzz_methods_dir, 'all_methods.java')
 if not os.path.exists(all_methods_file):
@@ -127,11 +143,12 @@ if not os.path.exists(all_methods_file):
 with open(all_methods_file, 'r') as f:
     content = f.read()
 
-# Extract all matches
-extracted_patterns = []
-for pattern in patterns:
-    matches = re.findall(pattern, content)
-    extracted_patterns.extend(matches)
+# Simple pattern to extract all string literals
+string_pattern = r'"([^"\\]*(\\.[^"\\]*)*)"'
+matches = re.findall(string_pattern, content)
+
+# Extract just the first element of each tuple
+extracted_patterns = [match[0] for match in matches if match[0]]
 
 # Remove duplicates
 extracted_patterns = list(set(extracted_patterns))
@@ -139,11 +156,12 @@ extracted_patterns = list(set(extracted_patterns))
 # Save to corpus files
 added_files = []
 for pattern in extracted_patterns:
-    # Clean up the pattern
-    pattern = pattern.replace('\\\\\\"', '\"').replace('\\\\\\\\', '\\\\')
-
     # Skip if it's too short or just contains common characters
     if len(pattern) < 3 or pattern.strip() in ['{}', '[]', '()', '%n', '%m']:
+        continue
+
+    # Skip if it's a common Java identifier or parameter name
+    if pattern in ['data', 'event', 'message', 'result', 'name', 'value', 'key', 'param']:
         continue
 
     # Write to file
@@ -154,7 +172,11 @@ for pattern in extracted_patterns:
     next_test_num += 1
 
 print(f'Added {len(added_files)} new test cases extracted from fuzz methods')
-"
+EOF
+
+# Run the script
+python extract_patterns.py
+
 
 # Step 4: Clean test cases
 echo -e "\n${YELLOW}Step 4: Cleaning test cases${NC}"

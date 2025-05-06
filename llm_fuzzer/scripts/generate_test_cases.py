@@ -251,6 +251,183 @@ def generate_integration_code(llm, existing_info, new_methods):
 
 
 
+def parse_jacoco_report(xml_path):
+    """Parse JaCoCo XML report to identify low-coverage areas."""
+    import xml.etree.ElementTree as ET
+
+    # Parse the XML file
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    # Extract coverage data
+    coverage_data = []
+
+    # Process each package
+    for package in root.findall('.//package'):
+        package_name = package.get('name')
+
+        # Process each class in the package
+        for class_elem in package.findall('./class'):
+            class_name = class_elem.get('name')
+
+            # Get method coverage
+            for method in class_elem.findall('./method'):
+                method_name = method.get('name')
+
+                # Get coverage counters
+                counters = method.findall('./counter')
+
+                # Extract line and branch coverage
+                line_counter = next((c for c in counters if c.get('type') == 'LINE'), None)
+                branch_counter = next((c for c in counters if c.get('type') == 'BRANCH'), None)
+
+                if line_counter is not None:
+                    covered = int(line_counter.get('covered', 0))
+                    missed = int(line_counter.get('missed', 0))
+                    total = covered + missed
+
+                    if total > 0:
+                        line_coverage = covered / total
+                    else:
+                        line_coverage = 0.0
+                else:
+                    line_coverage = 0.0
+
+                if branch_counter is not None:
+                    covered = int(branch_counter.get('covered', 0))
+                    missed = int(branch_counter.get('missed', 0))
+                    total = covered + missed
+
+                    if total > 0:
+                        branch_coverage = covered / total
+                    else:
+                        branch_coverage = 0.0
+                else:
+                    branch_coverage = 0.0
+
+                # Calculate a combined score
+                # Weight branch coverage more heavily as it's often more important
+                coverage_score = 0.4 * line_coverage + 0.6 * branch_coverage
+
+                # Add to our data
+                coverage_data.append({
+                    'package': package_name,
+                    'class': class_name,
+                    'method': method_name,
+                    'line_coverage': line_coverage,
+                    'branch_coverage': branch_coverage,
+                    'coverage_score': coverage_score
+                })
+
+    # Sort by coverage score (ascending)
+    coverage_data.sort(key=lambda x: x['coverage_score'])
+
+    return coverage_data
+
+
+def generate_targeted_fuzz_methods(llm, coverage_data, num_methods=5):
+    """Generate targeted fuzz methods focusing on the least-covered areas."""
+
+    # Get the least-covered methods
+    least_covered = coverage_data[:min(20, len(coverage_data))]
+
+    # Group by class for better targeting
+    class_coverage = {}
+    for item in least_covered:
+        class_name = item['class']
+        if class_name not in class_coverage:
+            class_coverage[class_name] = []
+        class_coverage[class_name].append(item)
+
+    # Sort classes by average coverage
+    class_avg_coverage = {}
+    for class_name, methods in class_coverage.items():
+        avg_score = sum(m['coverage_score'] for m in methods) / len(methods)
+        class_avg_coverage[class_name] = avg_score
+
+    sorted_classes = sorted(class_avg_coverage.items(), key=lambda x: x[1])
+
+    # Get detailed info for the top N classes
+    target_classes = []
+    for class_name, score in sorted_classes[:num_methods]:
+        # Get the full package name
+        package_name = next(item['package'] for item in coverage_data if item['class'] == class_name)
+        full_class_name = f"{package_name}.{class_name}"
+
+        # Get uncovered methods
+        methods = [m['method'] for m in class_coverage[class_name]]
+
+        target_classes.append({
+            'full_name': full_class_name,
+            'name': class_name.split('/')[-1],  # Just the simple class name
+            'uncovered_methods': methods,
+            'coverage_score': score
+        })
+
+    # Generate fuzz methods for each target class
+    methods = []
+    for target in target_classes:
+        prompt_template = f"""<|im_start|>system
+You are an expert Java developer specializing in creating fuzz tests for the Log4j library.
+<|im_end|>
+<|im_start|>user
+I need to create a targeted fuzz method for the Log4j class `{target['full_name']}`.
+
+The JaCoCo coverage report shows this class has low coverage (score: {target['coverage_score']:.2f}).
+Some methods with low coverage include: {', '.join(target['uncovered_methods'][:5])}.
+
+Please create a fuzz method named "fuzzTargeted{target['name']}" that specifically exercises this class
+and its low-coverage methods. The method should:
+
+1. Take a FuzzedDataProvider parameter named "data"
+2. Create and manipulate instances of {target['name']}
+3. Call the uncovered methods with fuzzed inputs
+4. Handle exceptions properly with recordCrash
+5. Be thorough in testing edge cases
+
+Here's the method signature:
+
+```java
+private static void fuzzTargeted{target['name']}(FuzzedDataProvider data) {{
+    try {{
+        // Your targeted fuzzing code here
+        
+    }} catch (Throwable t) {{
+        recordCrash("{target['name']} targeted fuzzing", t);
+    }}
+}}
+Generate ONLY the implementation of this method, with no additional explanation.
+<|im_end|>
+<|im_start|>assistant
+"""
+    print(f"Generating targeted fuzz method for {target['name']}...")
+
+    # Generate the method
+    completion = llm.create_completion(
+        prompt=prompt_template,
+        max_tokens=1536,
+        temperature=0.7,
+        top_p=0.9,
+        repeat_penalty=1.1,
+        stop=["<|im_end|>"]
+    )
+
+    # Extract the generated code
+    method_code = completion["choices"][0]["text"].strip()
+
+    # Clean up the code
+    method_code = clean_generated_code(method_code)
+
+    methods.append({
+        "name": f"Targeted{target['name']}",
+        "method_name": f"fuzzTargeted{target['name']}",
+        "method_code": method_code,
+        "target_class": target['full_name']
+    })
+
+    return methods
+
+
 
 def generate_patch_script(existing_info, methods, integration_code, output_dir="generated_tests/fuzz_methods"):
     """Generate a patch script to automatically integrate new methods."""

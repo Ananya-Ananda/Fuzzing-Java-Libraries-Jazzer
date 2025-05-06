@@ -1,11 +1,12 @@
 Fuzzing Summary:
 ----------------
-Total executions: 60000
-Total runtime: 21 seconds
-Average executions per second: 2809.383340356792
-Total crashes detected: 2563
+Total executions: 91144
+Total runtime: 775 seconds
+Average executions per second: 117.57588110315754
+Total crashes detected: 3892
 Used LLM-generated test cases: Yes
-Number of test cases: 21
+Number of test cases: 126
+Total corpus size (including extracted patterns): 126
 
 LLM-Generated Fuzz Methods: 5
 Methods: fuzzXmlConfiguration,fuzzAppenderBuilders,fuzzFilters,fuzzLookups,fuzzLayoutSerialization

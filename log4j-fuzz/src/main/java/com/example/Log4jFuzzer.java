@@ -82,7 +82,7 @@ public class Log4jFuzzer {
 
         // Set a timeout for this run
         final long startTimeThisRun = System.currentTimeMillis();
-        final long timeoutMillis = 300 * 1000; // 300 seconds
+        final long timeoutMillis = 180 * 1000; // 180 seconds
 
         // Make sure test cases are loaded
         if (!loadedTestCases) {
@@ -90,11 +90,11 @@ public class Log4jFuzzer {
         }
 
         // Determine whether to use a predefined test case or raw data
-        boolean usePredefined = !TEST_CASES.isEmpty() &&
+        final boolean usePredefined = !TEST_CASES.isEmpty() &&
                 data.remainingBytes() > 0 &&
                 data.consumeBoolean();
 
-        String specialTestCase = null;
+        final String specialTestCase;
         if (usePredefined) {
             int index = Math.abs(data.consumeInt()) % TEST_CASES.size();
             specialTestCase = TEST_CASES.get(index);
@@ -102,117 +102,106 @@ public class Log4jFuzzer {
                     (specialTestCase.length() > 50 ?
                             specialTestCase.substring(0, 50) + "..." :
                             specialTestCase));
+        } else {
+            specialTestCase = null;
         }
 
         try {
             // Choose which test method to run
-            int methodToRun = data.remainingBytes() > 0 ? Math.abs(data.consumeInt()) % 9 : 0;
+            final int methodToRun = data.remainingBytes() > 0 ? Math.abs(data.consumeInt()) % 9 : 0;
 
             // Check if we've already exceeded the timeout
             if (System.currentTimeMillis() - startTimeThisRun > timeoutMillis) {
                 throw new RuntimeException("Timeout exceeded before method execution");
             }
 
-            // Create a thread to monitor timeout
-            Thread watchdog = new Thread(() -> {
+            // Use a separate thread to execute the test method
+            Thread testThread = new Thread(() -> {
                 try {
-                    Thread.sleep(timeoutMillis);
-                    // If we get here, timeout occurred
-                    System.err.println("Execution timeout detected - interrupting main thread");
-                    Thread.currentThread().interrupt();
-                } catch (InterruptedException e) {
-                    // Watchdog was interrupted normally, no action needed
+                    switch (methodToRun) {
+                        case 0:
+                            // Original method: Fuzz PatternLayout
+                            if (specialTestCase != null && specialTestCase.contains("%")) {
+                                fuzzPatternLayout(data, specialTestCase);
+                            } else {
+                                fuzzPatternLayout(data);
+                            }
+                            break;
+                        case 1:
+                            // Original method: Fuzz Log Messages
+                            if (specialTestCase != null) {
+                                fuzzLogMessages(data, specialTestCase);
+                            } else {
+                                fuzzLogMessages(data);
+                            }
+                            break;
+                        case 2:
+                            // Original method: Fuzz JSON Layout
+                            if (specialTestCase != null && specialTestCase.contains("{")) {
+                                fuzzJsonLayout(data, specialTestCase);
+                            } else {
+                                fuzzJsonLayout(data);
+                            }
+                            break;
+                        case 3:
+                            // Original method: Fuzz Message Pattern
+                            if (specialTestCase != null && specialTestCase.contains("{")) {
+                                fuzzMessagePattern(data, specialTestCase);
+                            } else {
+                                fuzzMessagePattern(data);
+                            }
+                            break;
+                        // Cases for your LLM-generated methods
+                        case 4:
+                            fuzzXmlConfiguration(data);
+                            break;
+                        case 5:
+                            fuzzAppenderBuilders(data);
+                            break;
+                        case 6:
+                            fuzzFilters(data);
+                            break;
+                        case 7:
+                            fuzzLookups(data);
+                            break;
+                        case 8:
+                            fuzzLayoutSerialization(data);
+                            break;
+                        default:
+                            // Fall back to a safe method
+                            fuzzPatternLayout(data);
+                    }
+                } catch (Throwable t) {
+                    // Catch all exceptions within the test thread
+                    recordCrash("Test thread exception: " + t.getMessage(), t);
                 }
             });
-            watchdog.setDaemon(true);
-            watchdog.start();
 
+            // Make the thread a daemon so it won't prevent JVM shutdown
+            testThread.setDaemon(true);
+
+            // Start the test and wait with timeout
+            testThread.start();
             try {
-                switch (methodToRun) {
-                    case 0:
-                        // Original method: Fuzz PatternLayout
-                        if (specialTestCase != null && specialTestCase.contains("%")) {
-                            fuzzPatternLayout(data, specialTestCase);
-                        } else {
-                            fuzzPatternLayout(data);
-                        }
-                        break;
-                    case 1:
-                        // Original method: Fuzz Log Messages
-                        if (specialTestCase != null) {
-                            fuzzLogMessages(data, specialTestCase);
-                        } else {
-                            fuzzLogMessages(data);
-                        }
-                        break;
-                    case 2:
-                        // Original method: Fuzz JSON Layout
-                        if (specialTestCase != null && specialTestCase.contains("{")) {
-                            fuzzJsonLayout(data, specialTestCase);
-                        } else {
-                            fuzzJsonLayout(data);
-                        }
-                        break;
-                    case 3:
-                        // Original method: Fuzz Message Pattern
-                        if (specialTestCase != null && specialTestCase.contains("{")) {
-                            fuzzMessagePattern(data, specialTestCase);
-                        } else {
-                            fuzzMessagePattern(data);
-                        }
-                        break;
-                    // Cases for your LLM-generated methods
-                    case 4:
-                        fuzzXmlConfiguration(data);
-                        break;
-                    case 5:
-                        fuzzAppenderBuilders(data);
-                        break;
-                    case 6:
-                        fuzzFilters(data);
-                        break;
-                    case 7:
-                        fuzzLookups(data);
-                        break;
-                    case 8:
-                        fuzzLayoutSerialization(data);
-                        break;
-                    default:
-                        // Fall back to a safe method
-                        fuzzPatternLayout(data);
+                testThread.join(timeoutMillis);  // Wait up to the timeout
+
+                // If thread is still alive after timeout, it's stuck
+                if (testThread.isAlive()) {
+                    // Record the timeout
+                    System.err.println("Execution timeout detected for test case: " +
+                            (specialTestCase != null ? specialTestCase : "generated data"));
+
+                    recordCrash("Timeout on input: " +
+                                    (specialTestCase != null ? specialTestCase : "generated data"),
+                            new RuntimeException("Execution exceeded " + (timeoutMillis/1000) + " second timeout"));
                 }
-
-                // If we got here, execution completed successfully
-                watchdog.interrupt(); // Stop the watchdog
-
-            } catch (Exception e) {
-                // Check if this was due to a timeout interrupt
-                if (Thread.interrupted() || System.currentTimeMillis() - startTimeThisRun > timeoutMillis) {
-                    throw new RuntimeException("Method execution timed out after " +
-                            ((System.currentTimeMillis() - startTimeThisRun) / 1000) + " seconds", e);
-                }
-                throw e; // Re-throw if it wasn't a timeout
-            }
-
-        } catch (RuntimeException e) {
-            if (e.getMessage() != null && e.getMessage().contains("timed out")) {
-                // This was a timeout
-                System.err.println("Timeout occurred during fuzzing - moving to next input");
-                recordCrash("Timeout during fuzzing: " +
-                        (specialTestCase != null ? specialTestCase : "generated data"), e);
-            } else {
-                // Normal exception
-                recordCrash("Runtime exception: " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                // Main thread was interrupted while waiting for the test to complete
+                System.err.println("Main thread interrupted while waiting for test completion");
             }
         } catch (Throwable t) {
-            // Catch all possible errors (including NoClassDefFoundError and Error)
-            recordCrash("Main fuzzer method with input: " +
-                    (specialTestCase != null ? specialTestCase : "generated data"), t);
-        }
-
-        // Check for interrupt and clear it
-        if (Thread.interrupted()) {
-            System.err.println("Thread was interrupted - continuing with next input");
+            // Catch any issues in the setup or timeout handling
+            recordCrash("Setup phase exception: " + t.getMessage(), t);
         }
 
         // Generate a report after a certain time
@@ -832,6 +821,17 @@ public class Log4jFuzzer {
             writer.write("Total crashes detected: " + crashCount + "\n");
             writer.write("Used LLM-generated test cases: " + (loadedTestCases ? "Yes" : "No") + "\n");
             writer.write("Number of test cases: " + TEST_CASES.size() + "\n");
+
+            // Count corpus files to get a sense of growth
+            try {
+                File corpusDir = new File("../llm_fuzzer/generated_tests/corpus");
+                if (corpusDir.exists() && corpusDir.isDirectory()) {
+                    int corpusFileCount = corpusDir.listFiles(file -> file.isFile() && file.getName().endsWith(".txt")).length;
+                    writer.write("Total corpus size (including extracted patterns): " + corpusFileCount + "\n");
+                }
+            } catch (Exception e) {
+                // Skip if there's an issue
+            }
 
             // Add information about LLM-generated fuzz methods
             try {
