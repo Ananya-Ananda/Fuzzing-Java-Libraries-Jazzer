@@ -24,7 +24,7 @@ cleanup_and_report() {
 PROJECT_DIR="$HOME/Documents/UVA/Sem2/Software Analysis/Fuzzing-Java-Libraries-Jazzer"
 LOG4J_FUZZ_DIR="$PROJECT_DIR/log4j-fuzz"
 LLM_FUZZER_DIR="$PROJECT_DIR/llm_fuzzer"
-RUNS=100000
+RUNS=30000
 DICTIONARY="$LLM_FUZZER_DIR/generated_tests/log4j_dictionary.dict"
 JACOCO_AGENT="$HOME/.m2/repository/org/jacoco/org.jacoco.agent/0.8.10/org.jacoco.agent-0.8.10-runtime.jar"
 JACOCO_CLI="$PROJECT_DIR/jacococli.jar"
@@ -328,3 +328,124 @@ echo -e "\n${GREEN}=== Fuzzing completed successfully! ===${NC}"
 echo "Coverage report is available at: $LOG4J_FUZZ_DIR/jacoco-report-new/index.html"
 echo "Crash information (if any) is available at: $LOG4J_FUZZ_DIR/fuzzing_crashes.txt"
 echo "Summary report is available at: $LOG4J_FUZZ_DIR/fuzzing_summary.txt"
+
+
+# After generating the JaCoCo report
+# Step 10: Analyze coverage and generate targeted fuzz methods
+echo -e "\n${YELLOW}Step 10: Analyzing coverage for targeted fuzzing${NC}"
+cd "$LLM_FUZZER_DIR/scripts"
+python generate_targeted_fuzz.py --jacoco-xml "$LOG4J_FUZZ_DIR/jacoco-report-new/jacoco.xml"
+
+# Apply the generated methods
+cd "$LLM_FUZZER_DIR/generated_tests/fuzz_methods"
+./apply_patch.sh
+
+# Recompile
+cd "$LOG4J_FUZZ_DIR"
+mvn clean compile
+
+# Run Jazzer with new methods
+"$JAZZER_CLI" \
+    --cp=target/classes:$(cat classpath.txt) \
+    --target_class=org.example.Log4jFuzzer \
+    '--instrumentation_includes=org.apache.logging.log4j.**' \
+    -dict="$DICTIONARY" \
+    -seed=12345 \
+    -runs=30000
+
+
+# Step 10: Analyze coverage and generate targeted fuzz methods
+echo -e "\n${YELLOW}Step 10: Analyzing coverage for targeted fuzzing${NC}"
+cd "$LLM_FUZZER_DIR/scripts"
+python generate_targeted_fuzz.py --jacoco-xml "$LOG4J_FUZZ_DIR/jacoco-report-new/jacoco.xml"
+
+# Step 11: Apply the generated methods
+echo -e "\n${YELLOW}Step 11: Applying generated methods${NC}"
+cd "$LLM_FUZZER_DIR/generated_tests/fuzz_methods"
+if [ -f "apply_patch.sh" ]; then
+    chmod +x apply_patch.sh
+    ./apply_patch.sh
+    echo "Successfully applied new fuzz methods."
+else
+    echo "${YELLOW}Warning: apply_patch.sh not found. Skipping method application.${NC}"
+    exit 1
+fi
+
+# Step 12: Recompile with new methods
+echo -e "\n${YELLOW}Step 12: Recompiling with new methods${NC}"
+cd "$LOG4J_FUZZ_DIR"
+mvn clean compile
+
+# Step 13: Backup original results
+echo -e "\n${YELLOW}Step 13: Backing up original results${NC}"
+# Create backup directory
+BACKUP_DIR="$LOG4J_FUZZ_DIR/backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Backup original summary and coverage
+if [ -f "fuzzing_summary.txt" ]; then
+    cp fuzzing_summary.txt "$BACKUP_DIR/original_summary.txt"
+    echo "Backed up original summary to $BACKUP_DIR/original_summary.txt"
+fi
+
+if [ -d "jacoco-report-new" ]; then
+    mkdir -p "$BACKUP_DIR/jacoco-original"
+    cp -r jacoco-report-new/* "$BACKUP_DIR/jacoco-original/"
+    echo "Backed up original JaCoCo report to $BACKUP_DIR/jacoco-original/"
+fi
+
+# Backup Jazzer output if it exists
+if [ -f "fuzzing_crashes.txt" ]; then
+    cp fuzzing_crashes.txt "$BACKUP_DIR/original_crashes.txt"
+fi
+
+# Step 14: Run second Jazzer fuzzing with new methods
+echo -e "\n${YELLOW}Step 14: Running second fuzzing with LLM-generated methods${NC}"
+export JAVA_TOOL_OPTIONS="-javaagent:$JACOCO_AGENT=destfile=target/jacoco.exec -Xmx2g"
+
+# Capture Jazzer output to a new file
+JAZZER_OUTPUT_NEW="$LOG4J_FUZZ_DIR/jazzer_output_with_llm.txt"
+
+# Run Jazzer again with the same number of runs
+"$JAZZER_CLI" \
+    --cp=target/classes:$(cat classpath.txt) \
+    --target_class=org.example.Log4jFuzzer \
+    '--instrumentation_includes=org.apache.logging.log4j.**' \
+    -dict="$DICTIONARY" \
+    -seed=12345 \
+    -runs=$RUNS \
+    -ignore_crashes=1 2>&1 | tee "$JAZZER_OUTPUT_NEW" || {
+        echo -e "${YELLOW}Fuzzer exited with an error, but we'll continue with report generation${NC}"
+    }
+
+# Step 15: Generate new JaCoCo report
+echo -e "\n${YELLOW}Step 15: Generating second coverage report${NC}"
+java -jar "$JACOCO_CLI" report target/jacoco.exec \
+  --classfiles extracted-log4j \
+  --sourcefiles "$HOME/.m2/repository/org/apache/logging/log4j/log4j-core/2.20.0/log4j-core-2.20.0-sources.jar" \
+  --html jacoco-report-llm \
+  --xml jacoco-report-llm/jacoco.xml || {
+      echo -e "${YELLOW}JaCoCo report generation failed, but continuing${NC}"
+  }
+
+# Create a copy of the fuzzing summary for the comparison
+cp fuzzing_summary.txt fuzzing_summary_with_llm.txt
+
+# Step 16: Generate comparison report
+echo -e "\n${YELLOW}Step 16: Generating comparison report${NC}"
+# Run the comparison script with proper paths
+python "$PROJECT_DIR/comparison_scripts/compare_fuzzing_results.py" \
+    --before-jacoco="$BACKUP_DIR/jacoco-original/jacoco.xml" \
+    --after-jacoco="$LOG4J_FUZZ_DIR/jacoco-report-llm/jacoco.xml" \
+    --before-summary="$BACKUP_DIR/original_summary.txt" \
+    --after-summary="$LOG4J_FUZZ_DIR/fuzzing_summary_with_llm.txt" \
+    --before-jazzer="$BACKUP_DIR/original_crashes.txt" \
+    --after-jazzer="$JAZZER_OUTPUT_NEW" \
+    --output="$LOG4J_FUZZ_DIR/fuzzing_improvement_report.txt"
+
+echo -e "\n${GREEN}=== Complete fuzzing pipeline with LLM improvement comparison completed! ===${NC}"
+echo "Original report: $BACKUP_DIR/original_summary.txt"
+echo "New report with LLM methods: $LOG4J_FUZZ_DIR/fuzzing_summary_with_llm.txt"
+echo "Comparison report: $LOG4J_FUZZ_DIR/fuzzing_improvement_report.txt"
+echo "Original JaCoCo report: $BACKUP_DIR/jacoco-original/index.html"
+echo "Improved JaCoCo report: $LOG4J_FUZZ_DIR/jacoco-report-llm/index.html"

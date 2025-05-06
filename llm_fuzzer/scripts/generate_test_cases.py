@@ -181,7 +181,7 @@ I need ONLY the complete implementation of this method, with no extra explanatio
     }
 
 
-def generate_fuzz_methods(llm, num_methods=5):
+def generate_fuzz_methods(llm, num_methods=25):
     """Generate multiple fuzz test methods using the LLM."""
     methods = []
 

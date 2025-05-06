@@ -1,1 +1,1 @@
-fuzzXmlConfiguration,fuzzAppenderBuilders,fuzzFilters,fuzzLookups,fuzzLayoutSerialization
+fuzzXmlConfiguration,fuzzAppenderBuilders,fuzzFilters,fuzzLookups,fuzzLayoutSerialization,fuzzHttpWatcher,fuzzConfigurationScheduler
